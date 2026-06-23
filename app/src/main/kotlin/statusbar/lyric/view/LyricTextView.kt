@@ -44,16 +44,16 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
     }
 
     override fun onDetachedFromWindow() {
-        stopScroll()
+        stopScrollNow()
         super.onDetachedFromWindow()
     }
 
     override fun setText(text: CharSequence, type: BufferType) {
-        stopScroll()
+        stopScrollNow()
         currentX = 0f
         textLength = getTextLength(text)
         super.setText(text, type)
-        startScroll()
+        startScrollIfNeeded()
     }
 
     override fun setTextColor(color: Int) {
@@ -82,10 +82,10 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
         val realLyricWidth = viewWidth
         if (realTextLength <= realLyricWidth) {
             currentX = 0f
-            stopScroll()
+            stopScrollNow()
         } else if (realLyricWidth - currentX >= realTextLength) {
             currentX = realLyricWidth - realTextLength
-            stopScroll()
+            stopScrollNow()
         } else {
             currentX -= scrollSpeed
         }
@@ -99,7 +99,8 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
         }
     }
 
-    private fun startScroll() {
+    private fun startScrollIfNeeded() {
+        if (textLength <= 0f) return
         isScrolling = true
         postDelayed(
             startScrollRunnable,
@@ -107,7 +108,7 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
         )
     }
 
-    private fun stopScroll() {
+    fun stopScrollNow() {
         isScrolling = false
         removeCallbacks(startScrollRunnable)
         Choreographer.getInstance().removeFrameCallback(this)
