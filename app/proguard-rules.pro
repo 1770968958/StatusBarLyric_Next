@@ -33,3 +33,6 @@
 -adaptresourcefilecontents proguard-dic-6.txt
 -keep class com.hchen.superlyricapi.** { *; }
 -keep interface com.hchen.superlyricapi.** { *; }
+
+# SuperLyricApi 3.4 uses Android hidden ServiceManager.
+-dontwarn android.os.ServiceManager
