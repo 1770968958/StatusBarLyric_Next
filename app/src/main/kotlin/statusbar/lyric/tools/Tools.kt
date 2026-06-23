@@ -54,6 +54,7 @@ import kotlin.properties.ReadWriteProperty
 
 @SuppressLint("StaticFieldLeak")
 object Tools {
+    private val mainHandler: Handler by lazy { Handler(Looper.getMainLooper()) }
 
     private var index: Int = 0
 
@@ -158,7 +159,7 @@ object Tools {
     }
 
     fun goMainThread(delayed: Long = 0, callback: () -> Unit): Boolean {
-        return Handler(Looper.getMainLooper()).postDelayed({
+        return mainHandler.postDelayed({
             callback()
         }, delayed * 1000)
     }

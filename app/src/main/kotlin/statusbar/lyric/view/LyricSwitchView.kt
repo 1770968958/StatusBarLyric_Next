@@ -71,6 +71,10 @@ open class LyricSwitchView(context: Context) : TextSwitcher(context) {
         applyToAllViews { it.setScrollSpeed(speed) }
     }
 
+    fun stopAllScroll() {
+        applyToAllViews { it.stopScrollNow() }
+    }
+
     fun setLetterSpacings(letterSpacing: Float) {
         applyToAllViews { it.letterSpacing = letterSpacing }
     }
