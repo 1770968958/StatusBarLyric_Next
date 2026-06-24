@@ -407,605 +407,184 @@ fun LyricPage(
 
 @Composable
 fun LyricWidthDialog(showDialog: MutableState<Boolean>, lyricWidth: MutableState<String>) {
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_width),
         summary = stringResource(R.string.lyric_width_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = lyricWidth.value,
-            maxLines = 1,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            onValueChange = { lyricWidth.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (lyricWidth.value.toIntOrNull().isNotNull() && lyricWidth.value.toInt() in 0..100) {
-                        config.lyricWidth = lyricWidth.value.toInt()
-                    } else {
-                        config.lyricWidth = 0
-                        lyricWidth.value = "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
+        initialValue = lyricWidth.value.toIntOrNull() ?: config.lyricWidth,
+        validRange = 0..100,
+        fallbackValue = { 0 },
+        onValueChange = {
+            config.lyricWidth = it
+            lyricWidth.value = it.toString()
         }
-    }
+    )
 }
 
 @Composable
 fun LyricSizeDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricSize.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_size),
         summary = stringResource(R.string.lyric_size_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = {
-                    showDialog.value = false
-                }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..100) {
-                        config.lyricSize = value.value.toInt()
-                    } else {
-                        config.lyricSize = 0
-                        value.value = "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricSize,
+        validRange = 0..100,
+        fallbackValue = { 0 },
+        onValueChange = { config.lyricSize = it }
+    )
 }
 
 @Composable
 fun LyricColorDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricColor) }
-    SuperDialog(
+    ColorSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_color_and_transparency),
         summary = stringResource(R.string.lyric_color_and_transparency_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            label = "#FFFFFF",
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    ActivityTools.colorCheck(value.value, unit = { config.lyricColor = it })
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricColor,
+        onValueChange = { config.lyricColor = it }
+    )
 }
 
 @Composable
 fun LyricGradientDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricGradientColor) }
-    SuperDialog(
+    ColorSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyrics_are_gradient_and_transparent),
         summary = stringResource(R.string.lyrics_are_gradient_and_transparent_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            label = "#ff0099,#d508a8,#aa10b8",
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = {
-                    showDialog.value = false
-                }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    ActivityTools.colorSCheck(value.value, unit = { config.lyricGradientColor = it })
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.lyricGradientColor,
+        label = "#ff0099,#d508a8,#aa10b8",
+        allowMultipleColors = true,
+        onValueChange = { config.lyricGradientColor = it }
+    )
 }
 
 @Composable
 fun LyricGradientBgColorDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricBackgroundColor) }
-    SuperDialog(
+    ColorSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyrics_gradient_background_color_and_transparency),
         summary = stringResource(R.string.lyrics_gradient_background_color_and_transparency_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            label = "#00000000",
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    ActivityTools.colorSCheck(value.value, unit = { config.lyricBackgroundColor = it })
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricBackgroundColor,
+        label = "#00000000",
+        allowMultipleColors = true,
+        onValueChange = { config.lyricBackgroundColor = it }
+    )
 }
 
 @Composable
 fun LyricBgRadiusDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricBackgroundRadius.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_background_radius),
         summary = stringResource(R.string.lyric_background_radius_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..100) {
-                        config.lyricBackgroundRadius = value.value.toInt()
-                    } else {
-                        config.lyricBackgroundRadius = 0
-                        value.value = "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricBackgroundRadius,
+        validRange = 0..100,
+        fallbackValue = { 0 },
+        onValueChange = { config.lyricBackgroundRadius = it }
+    )
 }
 
 @Composable
 fun LyricLetterSpacingDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricLetterSpacing.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_letter_spacing),
         summary = stringResource(R.string.lyric_letter_spacing_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..50) {
-                        config.lyricLetterSpacing = value.value.toInt()
-                    } else {
-                        config.lyricLetterSpacing = 0
-                        value.value = "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricLetterSpacing,
+        validRange = 0..50,
+        fallbackValue = { 0 },
+        onValueChange = { config.lyricLetterSpacing = it }
+    )
 }
 
 @Composable
 fun LyricStrokeWidthDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricStrokeWidth.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_stroke_width),
         summary = stringResource(R.string.lyric_stroke_width_tips),
-        show = showDialog,
-        onDismissRequest = {
-            showDialog.value = false
-        },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = {
-                    showDialog.value = false
-                }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..400) {
-                        config.lyricStrokeWidth = value.value.toInt()
-                    } else {
-                        config.lyricStrokeWidth = 0
-                        value.value = "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricStrokeWidth,
+        validRange = 0..400,
+        fallbackValue = { 0 },
+        onValueChange = { config.lyricStrokeWidth = it }
+    )
 }
 
 @Composable
 fun LyricSpeedDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricSpeed.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_speed),
         summary = stringResource(R.string.lyric_speed_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..20) {
-                        config.lyricSpeed = value.value.toInt()
-                    } else {
-                        config.lyricSpeed = 1
-                        value.value = "1"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricSpeed,
+        validRange = 0..20,
+        fallbackValue = { 1 },
+        keyboardType = KeyboardType.Number,
+        onValueChange = { config.lyricSpeed = it }
+    )
 }
 
 @Composable
 fun LyricTopMarginsDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricTopMargins.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_top_margins),
         summary = stringResource(R.string.lyric_top_margins_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..100) {
-                        config.lyricTopMargins = value.value.toInt()
-                    } else {
-                        config.lyricTopMargins = 0
-                        value.value = "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricTopMargins,
+        validRange = 0..100,
+        fallbackValue = { 0 },
+        onValueChange = { config.lyricTopMargins = it }
+    )
 }
 
 @Composable
 fun LyricBottomMarginsDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricBottomMargins.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_bottom_margins),
         summary = stringResource(R.string.lyric_bottom_margins_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..100) {
-                        config.lyricBottomMargins = value.value.toInt()
-                    } else {
-                        config.lyricBottomMargins = 0
-                        value.value = "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricBottomMargins,
+        validRange = 0..100,
+        fallbackValue = { 0 },
+        onValueChange = { config.lyricBottomMargins = it }
+    )
 }
 
 @Composable
 fun LyricStartMarginsDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricStartMargins.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_start_margins),
         summary = stringResource(R.string.lyric_start_margins_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = {
-                    showDialog.value = false
-                }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in -2000..2000) {
-                        config.lyricStartMargins = value.value.toInt()
-                    } else {
-                        config.lyricStartMargins = if (config.mHyperOSTexture) 20 else 8
-                        value.value = if (config.mHyperOSTexture) "20" else "8"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricStartMargins,
+        validRange = -2000..2000,
+        fallbackValue = { if (config.mHyperOSTexture) 20 else 8 },
+        onValueChange = { config.lyricStartMargins = it }
+    )
 }
 
 @Composable
 fun LyricEndMarginsDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.lyricEndMargins.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyric_end_margins),
         summary = stringResource(R.string.lyric_end_margins_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = {
-                    showDialog.value = false
-                }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in -2000..2000) {
-                        config.lyricEndMargins = value.value.toInt()
-                    } else {
-                        config.lyricEndMargins = if (config.mHyperOSTexture) 20 else 10
-                        value.value = if (config.mHyperOSTexture) "20" else "10"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.lyricEndMargins,
+        validRange = -2000..2000,
+        fallbackValue = { if (config.mHyperOSTexture) 20 else 10 },
+        onValueChange = { config.lyricEndMargins = it }
+    )
 }
 
 @Composable
 fun LyricAnimDurationDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.animationDuration.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.lyrics_animation_duration),
         summary = stringResource(R.string.lyric_animation_duration_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..1000) {
-                        config.animationDuration = value.value.toInt()
-                    } else {
-                        config.animationDuration = 300
-                        value.value = "300"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.animationDuration,
+        validRange = 0..1000,
+        fallbackValue = { 300 },
+        onValueChange = { config.animationDuration = it }
+    )
 }

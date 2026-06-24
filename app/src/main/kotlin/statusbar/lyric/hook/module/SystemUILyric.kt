@@ -41,6 +41,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.os.Message
 import android.util.Base64
@@ -126,14 +127,18 @@ class SystemUILyric : BaseHook() {
         }
     }
     private var lastBase64Icon: String by observableChange("") { _, newValue ->
-        goMainThread {
-            base64ToBitmap(newValue).isNotNull {
-                iconView.showView()
-                iconView.setImageBitmap(it)
-            }.isNot {
-                iconView.hideView()
+        iconDecodeHandler.post {
+            val bitmap = base64ToBitmap(newValue)
+            goMainThread {
+                if (lastBase64Icon != newValue) return@goMainThread
+                bitmap.isNotNull {
+                    iconView.showView()
+                    iconView.setImageBitmap(it)
+                }.isNot {
+                    iconView.hideView()
+                }
+                "Changing Icon".log()
             }
-            "Changing Icon".log()
         }
     }
     private var canLoad: Boolean = true
@@ -152,6 +157,10 @@ class SystemUILyric : BaseHook() {
     private var theoreticalWidth: Int = 0
     private var fullscreenModeType: Int = -1
     private val lyricMeasureTextView: TextView by lazy { TextView(context) }
+    private val iconDecodeThread: HandlerThread by lazy {
+        HandlerThread("StatusBarLyric-IconDecode").apply { start() }
+    }
+    private val iconDecodeHandler: Handler by lazy { Handler(iconDecodeThread.looper) }
     private lateinit var point: Point
 
 
@@ -159,6 +168,13 @@ class SystemUILyric : BaseHook() {
     private val displayWidth: Int by lazy { displayMetrics.widthPixels }
     private val displayHeight: Int by lazy { displayMetrics.heightPixels }
 
+
+    private companion object {
+        const val MAX_ICON_BASE64_CHARS = 700_000
+        const val MAX_ICON_BYTES = 524_288
+        const val MAX_ICON_SOURCE_DIMENSION = 2_048
+        const val MAX_ICON_DECODED_DIMENSION = 512
+    }
 
     private lateinit var clockView: TextView
     private lateinit var targetView: ViewGroup
@@ -169,20 +185,18 @@ class SystemUILyric : BaseHook() {
             override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
                 super.onSizeChanged(w, h, oldw, oldh)
                 if (config.lyricGradientColor.isNotEmpty()) {
-                    config.lyricGradientColor.trim().split(",").map { it.trim().toColorInt() }
-                        .let { colors ->
-                            if (colors.isEmpty()) {
-                                setTextColor(Color.WHITE)
-                            } else if (colors.size < 2) {
-                                setTextColor(colors[0])
-                            } else {
-                                val textShader = LinearGradient(
-                                    0f, 0f, width.toFloat(),
-                                    0f, colors.toIntArray(), null, Shader.TileMode.CLAMP
-                                )
-                                setLinearGradient(textShader)
-                            }
-                        }
+                    val colors = parseColorList(config.lyricGradientColor)
+                    if (colors.isEmpty()) {
+                        setTextColor(Color.WHITE)
+                    } else if (colors.size < 2) {
+                        setTextColor(colors[0])
+                    } else {
+                        val textShader = LinearGradient(
+                            0f, 0f, width.toFloat(),
+                            0f, colors.toIntArray(), null, Shader.TileMode.CLAMP
+                        )
+                        setLinearGradient(textShader)
+                    }
                 }
             }
         }.apply {
@@ -223,6 +237,9 @@ class SystemUILyric : BaseHook() {
     @SuppressLint("DiscouragedApi", "NewApi")
     override fun init() {
         "Initializing Hook".log()
+        if (config.limitVisibilityChange) {
+            moduleRes.getString(R.string.limit_visibility_change).log()
+        }
         Application::class.java.methodFinder().filterByName("attach").single().createHook {
             after { hook ->
                 registerSuperLyric(hook.args[0] as Context)
@@ -263,6 +280,18 @@ class SystemUILyric : BaseHook() {
                 .createHook {
                     before { param ->
                         val view = param.thisObject as View
+                        if (config.limitVisibilityChange && isMusicPlaying && !isHiding && param.args[0] == View.VISIBLE) {
+                            if (
+                                (isReady && clockView == view && config.hideTime) ||
+                                (notificationIconArea == view && config.hideNotificationIcon) ||
+                                (XiaomiHooks.getCarrierLabel() == view && config.hideCarrier) ||
+                                (XiaomiHooks.getMiuiNetworkSpeedView() == view && config.mMiuiHideNetworkSpeed) ||
+                                (XiaomiHooks.getPadClockView() == view && config.hideTime)
+                            ) {
+                                param.args[0] = View.GONE
+                            }
+                        }
+
                         if (statusBatteryContainer.isNotNull()) {
                             if (statusBatteryContainer != view) return@before
                             if (!isMusicPlaying) return@before
@@ -285,28 +314,6 @@ class SystemUILyric : BaseHook() {
         }.isNot {
             moduleRes.getString(R.string.load_class_empty).log()
             return
-        }
-
-        if (config.limitVisibilityChange) {
-            moduleRes.getString(R.string.limit_visibility_change).log()
-            View::class.java.methodFinder().filterByName("setVisibility").single().createHook {
-                before { hookParam ->
-                    if (isMusicPlaying && !isHiding) {
-                        if (hookParam.args[0] == View.VISIBLE) {
-                            val view = hookParam.thisObject as View
-                            if (
-                                (isReady && clockView == view && config.hideTime) ||
-                                (notificationIconArea == view && config.hideNotificationIcon) ||
-                                (XiaomiHooks.getCarrierLabel() == view && config.hideCarrier) ||
-                                (XiaomiHooks.getMiuiNetworkSpeedView() == view && config.mMiuiHideNetworkSpeed) ||
-                                (XiaomiHooks.getPadClockView() == view && config.hideTime)
-                            ) {
-                                hookParam.args[0] = View.GONE
-                            }
-                        }
-                    }
-                }
-            }
         }
 
         // 状态栏图标颜色更改
@@ -780,8 +787,8 @@ class SystemUILyric : BaseHook() {
                             "Delay mode - Duration: ${durationInSeconds}, Speed: $boundedSpeed".log()
                         }
                     } else if (config.dynamicLyricSpeed) {
-                        val proportion = i / lyricWidth
-                        val speed = 10 * proportion + 0.7f
+                        val proportion = i.toFloat() / lyricWidth.toFloat()
+                        val speed = 10f * proportion + 0.7f
                         setScrollSpeed(speed)
                         "Dynamic mode - Proportion: $proportion, Speed: $speed".log()
                     }
@@ -806,10 +813,41 @@ class SystemUILyric : BaseHook() {
         if (base64.isBlank()) return null
 
         return runCatching {
-            val raw = base64.substringAfter("base64,", base64)
+            val raw = base64.substringAfter("base64,", base64).trim()
+            if (raw.length > MAX_ICON_BASE64_CHARS) return@runCatching null
+
             val bytes = Base64.decode(raw, Base64.DEFAULT)
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            if (bytes.size > MAX_ICON_BYTES) return@runCatching null
+
+            val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
+            if (boundsOptions.outWidth <= 0 || boundsOptions.outHeight <= 0) return@runCatching null
+            if (boundsOptions.outWidth > MAX_ICON_SOURCE_DIMENSION || boundsOptions.outHeight > MAX_ICON_SOURCE_DIMENSION) {
+                return@runCatching null
+            }
+
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = calculateIconSampleSize(boundsOptions.outWidth, boundsOptions.outHeight)
+            }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
         }.getOrNull()
+    }
+
+    private fun calculateIconSampleSize(width: Int, height: Int): Int {
+        var sampleSize = 1
+        while (width / sampleSize > MAX_ICON_DECODED_DIMENSION || height / sampleSize > MAX_ICON_DECODED_DIMENSION) {
+            sampleSize *= 2
+        }
+        return sampleSize
+    }
+
+    private fun parseColorList(value: String): List<Int> {
+        return runCatching {
+            value.split(",")
+                .map { it.trim() }
+                .filter { it.isNotEmpty() }
+                .map { it.toColorInt() }
+        }.getOrDefault(emptyList())
     }
 
     // 更改图标
@@ -847,7 +885,7 @@ class SystemUILyric : BaseHook() {
         goMainThread(delay) {
             lyricView.apply {
                 setTextSize(
-                    TypedValue.COMPLEX_UNIT_SHIFT,
+                    TypedValue.COMPLEX_UNIT_PX,
                     if (config.lyricSize == 0) clockView.textSize else config.lyricSize.toFloat()
                 )
                 setMargins(
@@ -867,28 +905,28 @@ class SystemUILyric : BaseHook() {
                 setStrokeWidth(config.lyricStrokeWidth / 100f)
                 if (!config.dynamicLyricSpeed) setScrollSpeed(config.lyricSpeed.toFloat())
                 if (config.lyricBackgroundColor.isNotEmpty()) {
-                    if (config.lyricBackgroundColor.split(",").size < 2) {
-                        if (config.lyricBackgroundRadius != 0) {
-                            setBackgroundColor(Color.TRANSPARENT)
-                            background = GradientDrawable().apply {
-                                cornerRadius = config.lyricBackgroundRadius.toFloat()
-                                setColor(config.lyricBackgroundColor.toColorInt())
+                    val colors = parseColorList(config.lyricBackgroundColor)
+                    if (colors.size < 2) {
+                        colors.firstOrNull()?.let { color ->
+                            if (config.lyricBackgroundRadius != 0) {
+                                setBackgroundColor(Color.TRANSPARENT)
+                                background = GradientDrawable().apply {
+                                    cornerRadius = config.lyricBackgroundRadius.toFloat()
+                                    setColor(color)
+                                }
+                            } else {
+                                setBackgroundColor(color)
                             }
-                        } else {
-                            setBackgroundColor(config.lyricBackgroundColor.toColorInt())
                         }
                     } else {
-                        config.lyricBackgroundColor.trim().split(",").map { it.trim().toColorInt() }
-                            .let { colors ->
-                                val gradientDrawable = GradientDrawable(
-                                    GradientDrawable.Orientation.LEFT_RIGHT, colors.toIntArray()
-                                ).apply {
-                                    if (config.lyricBackgroundRadius != 0) {
-                                        cornerRadius = config.lyricBackgroundRadius.toFloat()
-                                    }
-                                }
-                                background = gradientDrawable
+                        val gradientDrawable = GradientDrawable(
+                            GradientDrawable.Orientation.LEFT_RIGHT, colors.toIntArray()
+                        ).apply {
+                            if (config.lyricBackgroundRadius != 0) {
+                                cornerRadius = config.lyricBackgroundRadius.toFloat()
                             }
+                        }
+                        background = gradientDrawable
                     }
                 }
 
@@ -952,7 +990,7 @@ class SystemUILyric : BaseHook() {
         "Getting Lyric Width".log()
         val textView = lyricMeasureTextView.apply {
             setTextSize(
-                TypedValue.COMPLEX_UNIT_SHIFT,
+                TypedValue.COMPLEX_UNIT_PX,
                 if (config.lyricSize == 0) clockView.textSize else config.lyricSize.toFloat()
             )
             setTypeface(clockView.typeface)

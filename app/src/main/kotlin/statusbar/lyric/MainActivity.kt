@@ -84,10 +84,7 @@ class MainActivity : ComponentActivity() {
         ) { result ->
             if (result.resultCode == RESULT_OK && result.data.isNotNull()) {
                 BackupTools.handleReadDocument(this, result.data!!.data)
-                Thread {
-                    Thread.sleep(500)
-                    ActivityTools.restartApp()
-                }.start()
+                ActivityTools.restartAppDelayed()
             }
         }
 

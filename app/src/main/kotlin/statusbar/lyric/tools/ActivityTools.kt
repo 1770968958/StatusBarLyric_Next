@@ -44,13 +44,22 @@ object ActivityTools {
     fun isHook(): Boolean = false
 
     fun changeConfig(type: String = "normal", path: String = "") {
-        Thread {
-            Thread.sleep(200)
+        handler.postDelayed({
             MainActivity.appContext.sendBroadcast(Intent("updateConfig").apply {
                 putExtra("type", type)
                 putExtra("path", path)
             })
-        }.start()
+        }, 200L)
+    }
+
+    fun runOnMainDelayed(delayMillis: Long, callback: () -> Unit) {
+        handler.postDelayed(callback, delayMillis)
+    }
+
+    fun restartAppDelayed(delayMillis: Long = 500L) {
+        runOnMainDelayed(delayMillis) {
+            restartApp()
+        }
     }
 
     fun showToastOnLooper(message: Any?) {
@@ -64,36 +73,46 @@ object ActivityTools {
         }
     }
 
-    fun colorCheck(value: String, unit: (String) -> Unit, default: String = "") {
-        if (value.isEmpty()) {
-            unit(default)
-        } else {
-            try {
-                value.toColorInt()
-            } catch (_: Exception) {
-                showToastOnLooper(MainActivity.appContext.getString(R.string.color_error))
-                return
-            }
+    fun colorCheck(value: String, unit: (String) -> Unit, default: String = ""): Boolean {
+        val checkedValue = value.trim().ifEmpty { default.trim() }
+        if (checkedValue.isEmpty()) {
+            unit("")
+            return true
         }
-        unit(value)
+
+        return try {
+            checkedValue.toColorInt()
+            unit(checkedValue)
+            true
+        } catch (_: Exception) {
+            showToastOnLooper(MainActivity.appContext.getString(R.string.color_error))
+            false
+        }
     }
 
-    fun colorSCheck(value: String, unit: (String) -> Unit, default: String = "") {
-        if (value.isEmpty()) {
-            unit(default)
-        } else {
-            try {
-                value.split(",").forEach {
-                    if (it.isNotEmpty()) {
-                        it.trim().toColorInt()
-                    }
-                }
-            } catch (_: Exception) {
-                showToastOnLooper(MainActivity.appContext.getString(R.string.color_error))
-                return
-            }
+    fun colorSCheck(value: String, unit: (String) -> Unit, default: String = ""): Boolean {
+        val checkedValue = value.trim().ifEmpty { default.trim() }
+        if (checkedValue.isEmpty()) {
+            unit("")
+            return true
         }
-        unit(value)
+
+        val colors = checkedValue.split(",")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (colors.isEmpty()) {
+            showToastOnLooper(MainActivity.appContext.getString(R.string.color_error))
+            return false
+        }
+
+        return try {
+            colors.forEach { it.toColorInt() }
+            unit(colors.joinToString(","))
+            true
+        } catch (_: Exception) {
+            showToastOnLooper(MainActivity.appContext.getString(R.string.color_error))
+            false
+        }
     }
 
     fun openUrl(url: String) {

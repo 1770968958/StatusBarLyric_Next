@@ -283,124 +283,38 @@ fun SystemSpecialPage(
 
 @Composable
 fun RadioDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.mHyperOSTextureRadio.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.hyperos_texture_radio),
         summary = stringResource(R.string.lyric_stroke_width_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..400) {
-                        config.mHyperOSTextureRadio = value.value.toInt()
-                    } else {
-                        config.mHyperOSTextureRadio = 25
-                        value.value = "25"
-                    }
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.mHyperOSTextureRadio,
+        validRange = 0..400,
+        fallbackValue = { 25 },
+        onValueChange = { config.mHyperOSTextureRadio = it }
+    )
 }
 
 @Composable
 fun CornerDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.mHyperOSTextureCorner.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.hyperos_texture_corner),
         summary = stringResource(R.string.lyric_letter_spacing_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..50) {
-                        config.mHyperOSTextureCorner = value.value.toInt()
-                    } else {
-                        config.mHyperOSTextureCorner = 25
-                        value.value = "25"
-                    }
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.mHyperOSTextureCorner,
+        validRange = 0..50,
+        fallbackValue = { 25 },
+        onValueChange = { config.mHyperOSTextureCorner = it }
+    )
 }
 
 @Composable
 fun BgColorDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.mHyperOSTextureBgColor) }
-    SuperDialog(
+    ColorSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.hyperos_texture_color),
         summary = stringResource(R.string.lyric_color_and_transparency_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    ActivityTools.colorCheck(value.value, unit = { config.mHyperOSTextureBgColor = it }, "#15818181")
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.mHyperOSTextureBgColor,
+        defaultValue = "#15818181",
+        onValueChange = { config.mHyperOSTextureBgColor = it }
+    )
 }

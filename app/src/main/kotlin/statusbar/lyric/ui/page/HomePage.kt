@@ -216,10 +216,7 @@ fun HomePage(
                                         color = Color.Red
                                     ),
                                     onClick = {
-                                        Thread {
-                                            Thread.sleep(500)
-                                            ActivityTools.restartApp()
-                                        }.start()
+                                        ActivityTools.restartAppDelayed()
                                     }
                                 )
                             }

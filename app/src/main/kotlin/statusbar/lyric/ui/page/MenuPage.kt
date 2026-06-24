@@ -323,10 +323,7 @@ fun ResetDialog(showDialog: MutableState<Boolean>) {
                 colors = ButtonDefaults.textButtonColorsPrimary(),
                 onClick = {
                     config.clear()
-                    Thread {
-                        Thread.sleep(500)
-                        ActivityTools.restartApp()
-                    }.start()
+                    ActivityTools.restartAppDelayed()
                     showDialog.value = false
                 }
             )

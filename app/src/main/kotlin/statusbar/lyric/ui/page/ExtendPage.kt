@@ -413,288 +413,89 @@ fun ExtendPage(
 
 @Composable
 fun CutSongsXRadiusDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.slideStatusBarCutSongsXRadius.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.slide_status_bar_cut_songs_x_radius),
         summary = stringResource(R.string.slide_status_bar_cut_songs_x_radius_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..2000) {
-                        config.slideStatusBarCutSongsXRadius = value.value.toInt()
-                    } else {
-                        config.slideStatusBarCutSongsXRadius = 50
-                        value.value = "50"
-                    }
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.slideStatusBarCutSongsXRadius,
+        validRange = 0..2000,
+        fallbackValue = { 50 },
+        onValueChange = { config.slideStatusBarCutSongsXRadius = it }
+    )
 }
 
 @Composable
 fun CutSongsYRadiusDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.slideStatusBarCutSongsYRadius.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.slide_status_bar_cut_songs_y_radius),
         summary = stringResource(R.string.slide_status_bar_cut_songs_y_radius_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..100) {
-                        config.slideStatusBarCutSongsYRadius = value.value.toInt()
-                    } else {
-                        config.slideStatusBarCutSongsYRadius = 10
-                        value.value = "10"
-                    }
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.slideStatusBarCutSongsYRadius,
+        validRange = 0..100,
+        fallbackValue = { 10 },
+        onValueChange = { config.slideStatusBarCutSongsYRadius = it }
+    )
 }
 
 @Composable
 fun TitleDelayDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.titleDelayDuration.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.title_delay_duration),
         summary = stringResource(R.string.title_delay_duration_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..10000) {
-                        config.titleDelayDuration = value.value.toInt()
-                    } else {
-                        config.titleDelayDuration = 3000
-                        value.value = "3000"
-                    }
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.titleDelayDuration,
+        validRange = 0..10000,
+        fallbackValue = { 3000 },
+        onValueChange = { config.titleDelayDuration = it }
+    )
 }
 
 @Composable
 fun TitleBgColorDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.titleColorAndTransparency) }
-    SuperDialog(
+    ColorSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.title_color_and_transparency),
         summary = stringResource(R.string.lyric_color_and_transparency_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = {
-                    showDialog.value = false
-                }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    ActivityTools.colorCheck(value.value, unit = { config.titleColorAndTransparency = it }, "#000000")
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.titleColorAndTransparency,
+        defaultValue = "#000000",
+        onValueChange = { config.titleColorAndTransparency = it }
+    )
 }
 
 @Composable
 fun TitleRadiusDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.titleBackgroundRadius.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.title_background_radius),
         summary = stringResource(R.string.lyric_background_radius_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..100) {
-                        config.titleBackgroundRadius = value.value.toInt()
-                    } else {
-                        config.titleBackgroundRadius = 50
-                        value.value = "50"
-                    }
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.titleBackgroundRadius,
+        validRange = 0..100,
+        fallbackValue = { 50 },
+        onValueChange = { config.titleBackgroundRadius = it }
+    )
 }
 
 @Composable
 fun TitleStrokeWidthDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.titleBackgroundStrokeWidth.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.title_background_stroke_width),
         summary = stringResource(R.string.title_background_stroke_width_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..30) {
-                        config.titleBackgroundStrokeWidth = value.value.toInt()
-                    } else {
-                        config.titleBackgroundStrokeWidth = 10
-                        value.value = "10"
-                    }
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.titleBackgroundStrokeWidth,
+        validRange = 0..30,
+        fallbackValue = { 10 },
+        onValueChange = { config.titleBackgroundStrokeWidth = it }
+    )
 }
 
 @Composable
 fun TitleStrokeColorDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.titleBackgroundStrokeColorAndTransparency) }
-    SuperDialog(
+    ColorSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.title_background_stroke_color),
         summary = stringResource(R.string.lyric_color_and_transparency_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = {
-                value.value = it
-            }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    ActivityTools.colorCheck(value.value, unit = { config.titleBackgroundStrokeColorAndTransparency = it }, "#FFFFFF")
-                    showDialog.value = false
-                }
-            )
-        }
-    }
+        initialValue = config.titleBackgroundStrokeColorAndTransparency,
+        defaultValue = "#FFFFFF",
+        onValueChange = { config.titleBackgroundStrokeColorAndTransparency = it }
+    )
 }
