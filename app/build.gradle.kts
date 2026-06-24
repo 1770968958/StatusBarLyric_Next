@@ -29,7 +29,7 @@ android {
         versionName = "7.2.0"
         buildConfigField("long", "BUILD_TIME", "${buildTime}L")
         buildConfigField("int", "COMPOSE_CONFIG_VERSION", "1")
-        setProperty("archivesBaseName", "StatusBarLyric-$versionName($versionCode)")
+        setProperty("archivesBaseName", "StatusBarLyric_Next-$versionName($versionCode)")
     }
     val config = localProperties.getProperty("androidStoreFile")?.let {
         signingConfigs.create("config") {
