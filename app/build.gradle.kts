@@ -1,6 +1,5 @@
 @file:Suppress("UnstableApiUsage")
 
-import com.android.build.gradle.internal.api.BaseVariantOutputImpl
 import org.jetbrains.kotlin.konan.properties.Properties
 
 plugins {
@@ -9,7 +8,10 @@ plugins {
     alias(libs.plugins.kotlin.android)
 }
 
-val buildTime = System.currentTimeMillis()
+val buildTime = providers.gradleProperty("BUILD_TIME")
+    .orElse(providers.environmentVariable("BUILD_TIME"))
+    .orElse("0")
+    .get()
 val localProperties = Properties()
 if (rootProject.file("local.properties").canRead()) {
     localProperties.load(rootProject.file("local.properties").inputStream())
@@ -25,8 +27,9 @@ android {
         targetSdk = 36
         versionCode = 720
         versionName = "7.2.0"
-        buildConfigField("long", "BUILD_TIME", "$buildTime")
+        buildConfigField("long", "BUILD_TIME", "${buildTime}L")
         buildConfigField("int", "COMPOSE_CONFIG_VERSION", "1")
+        setProperty("archivesBaseName", "StatusBarLyric-$versionName($versionCode)")
     }
     val config = localProperties.getProperty("androidStoreFile")?.let {
         signingConfigs.create("config") {
@@ -47,11 +50,6 @@ android {
             isShrinkResources = true
             vcsInfo.include = false
             setProguardFiles(listOf(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"))
-        }
-    }
-    applicationVariants.all {
-        outputs.all {
-            (this as BaseVariantOutputImpl).outputFileName = "StatusBarLyric-$versionName($versionCode)-$name-$buildTime.apk"
         }
     }
     aaptOptions.cruncherEnabled = false

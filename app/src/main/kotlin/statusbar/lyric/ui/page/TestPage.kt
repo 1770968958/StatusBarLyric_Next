@@ -58,8 +58,8 @@ import statusbar.lyric.MainActivity.Companion.testReceiver
 import statusbar.lyric.R
 import statusbar.lyric.config.ActivityOwnSP.config
 import statusbar.lyric.tools.ActivityTestTools.getClass
+import statusbar.lyric.tools.ActivityTools.runOnMainDelayed
 import statusbar.lyric.tools.ActivityTools.showToastOnLooper
-import statusbar.lyric.tools.Tools.goMainThread
 import top.yukonga.miuix.kmp.basic.BasicComponent
 import top.yukonga.miuix.kmp.basic.BasicComponentColors
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
@@ -192,24 +192,21 @@ fun TestPage(
                                             }
 
                                             else -> {
-                                                Thread {
-                                                    Thread.sleep(500)
-                                                    goMainThread {
-                                                        if (testReceiver) {
-                                                            if (currentRoute != "ChoosePage") {
-                                                                navController.navigate("ChoosePage") {
-                                                                    popUpTo("TestPage") {
-                                                                        inclusive = false
-                                                                    }
-                                                                    launchSingleTop = true
-                                                                    restoreState = true
+                                                runOnMainDelayed(500L) {
+                                                    if (testReceiver) {
+                                                        if (currentRoute != "ChoosePage") {
+                                                            navController.navigate("ChoosePage") {
+                                                                popUpTo("TestPage") {
+                                                                    inclusive = false
                                                                 }
+                                                                launchSingleTop = true
+                                                                restoreState = true
                                                             }
-                                                        } else {
-                                                            showToastOnLooper(MainActivity.appContext.getString(R.string.broadcast_receive_timeout))
                                                         }
+                                                    } else {
+                                                        showToastOnLooper(MainActivity.appContext.getString(R.string.broadcast_receive_timeout))
                                                     }
-                                                }.start()
+                                                }
                                             }
                                         }
                                     },

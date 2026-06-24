@@ -356,253 +356,76 @@ fun IconPage(
 
 @Composable
 fun IconSizeDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.iconSize.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.icon_size),
         summary = stringResource(R.string.icon_size_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..100) {
-                        config.iconSize = value.value.toInt()
-                    } else {
-                        config.iconSize = 0
-                        value.value = "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.iconSize,
+        validRange = 0..100,
+        fallbackValue = { 0 },
+        onValueChange = { config.iconSize = it }
+    )
 }
 
 @Composable
 fun IconColorDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.iconColor) }
-    SuperDialog(
+    ColorSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.icon_color_and_transparency),
         summary = stringResource(R.string.icon_color_and_transparency_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    ActivityTools.colorCheck(value.value, unit = { config.iconColor = it })
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.iconColor,
+        onValueChange = { config.iconColor = it }
+    )
 }
 
 @Composable
 fun IconBgColorDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.iconBgColor) }
-    SuperDialog(
+    ColorSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.icon_background_color_and_transparency),
         summary = stringResource(R.string.icon_background_color_and_transparency_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    ActivityTools.colorCheck(value.value, unit = { config.iconBgColor = it })
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.iconBgColor,
+        onValueChange = { config.iconBgColor = it }
+    )
 }
 
 @Composable
 fun IconTopMarginsDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.iconTopMargins.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.icon_top_margins),
         summary = stringResource(R.string.icon_top_margins_tips),
-        show = showDialog,
-        onDismissRequest = {
-            showDialog.value = false
-        },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..100) {
-                        config.iconTopMargins = value.value.toInt()
-                    } else {
-                        config.iconTopMargins = 0
-                        value.value = "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.iconTopMargins,
+        validRange = 0..100,
+        fallbackValue = { 0 },
+        onValueChange = { config.iconTopMargins = it }
+    )
 }
 
 @Composable
 fun IconBottomMarginsDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.iconBottomMargins.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.icon_bottom_margins),
         summary = stringResource(R.string.icon_bottom_margins_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in 0..100) {
-                        config.iconBottomMargins = value.value.toInt()
-                    } else {
-                        config.iconBottomMargins = 0
-                        value.value = "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.iconBottomMargins,
+        validRange = 0..100,
+        fallbackValue = { 0 },
+        onValueChange = { config.iconBottomMargins = it }
+    )
 }
 
 @Composable
 fun IconStartMarginsDialog(showDialog: MutableState<Boolean>) {
-    val value = remember { mutableStateOf(config.iconStartMargins.toString()) }
-    SuperDialog(
+    IntSettingDialog(
+        showDialog = showDialog,
         title = stringResource(R.string.icon_start_margins),
         summary = stringResource(R.string.icon_start_margins_tips),
-        show = showDialog,
-        onDismissRequest = { showDialog.value = false },
-    ) {
-        TextField(
-            modifier = Modifier.padding(bottom = 16.dp),
-            value = value.value,
-            maxLines = 1,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            onValueChange = { value.value = it }
-        )
-        Row(
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.cancel),
-                onClick = { showDialog.value = false }
-            )
-            Spacer(Modifier.width(20.dp))
-            TextButton(
-                modifier = Modifier.weight(1f),
-                text = stringResource(R.string.ok),
-                colors = ButtonDefaults.textButtonColorsPrimary(),
-                onClick = {
-                    if (value.value.toIntOrNull().isNotNull() && value.value.toInt() in -2000..2000) {
-                        config.iconStartMargins = value.value.toInt()
-                    } else {
-                        config.iconStartMargins = if (config.mHyperOSTexture) 20 else 0
-                        value.value = if (config.mHyperOSTexture) "20" else "0"
-                    }
-                    showDialog.value = false
-                    changeConfig()
-                }
-            )
-        }
-    }
+        initialValue = config.iconStartMargins,
+        validRange = -2000..2000,
+        fallbackValue = { if (config.mHyperOSTexture) 20 else 0 },
+        onValueChange = { config.iconStartMargins = it }
+    )
 }
 
 @Composable
