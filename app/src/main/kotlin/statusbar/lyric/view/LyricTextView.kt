@@ -36,8 +36,14 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
     private var viewWidth = 0f
     private var scrollSpeed = 4f
     private var currentX = 0f
+    private var lastFrameTimeNanos = 0L
     private val startScrollRunnable =
         Runnable { Choreographer.getInstance().postFrameCallback(this) }
+
+    private companion object {
+        const val NANOS_PER_60HZ_FRAME = 16_666_667L
+        const val MAX_FRAME_DELTA = 4f
+    }
 
     init {
         paint.style = Paint.Style.FILL_AND_STROKE
@@ -51,6 +57,7 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
     override fun setText(text: CharSequence, type: BufferType) {
         stopScrollNow()
         currentX = 0f
+        lastFrameTimeNanos = 0L
         textLength = getTextLength(text)
         super.setText(text, type)
         startScrollIfNeeded()
@@ -77,7 +84,7 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
         text?.let { canvas.drawText(it.toString(), currentX, y, paint) }
     }
 
-    private fun updateScrollPosition() {
+    private fun updateScrollPosition(frameTimeNanos: Long) {
         val realTextLength = textLength
         val realLyricWidth = viewWidth
         if (realTextLength <= realLyricWidth) {
@@ -87,16 +94,24 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
             currentX = realLyricWidth - realTextLength
             stopScrollNow()
         } else {
-            currentX -= scrollSpeed
+            val frameDelta = if (lastFrameTimeNanos == 0L) {
+                1f
+            } else {
+                ((frameTimeNanos - lastFrameTimeNanos)
+                    .coerceAtLeast(0L)
+                    .toFloat() / NANOS_PER_60HZ_FRAME)
+                    .coerceIn(0f, MAX_FRAME_DELTA)
+            }
+            lastFrameTimeNanos = frameTimeNanos
+            currentX -= scrollSpeed * frameDelta
         }
     }
 
     override fun doFrame(frameTimeNanos: Long) {
-        if (isScrolling) {
-            updateScrollPosition()
-            postInvalidate()
-            Choreographer.getInstance().postFrameCallback(this)
-        }
+        if (!isScrolling) return
+        updateScrollPosition(frameTimeNanos)
+        postInvalidate()
+        Choreographer.getInstance().postFrameCallback(this)
     }
 
     private fun startScrollIfNeeded() {
@@ -110,6 +125,7 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
 
     fun stopScrollNow() {
         isScrolling = false
+        lastFrameTimeNanos = 0L
         removeCallbacks(startScrollRunnable)
         Choreographer.getInstance().removeFrameCallback(this)
     }
