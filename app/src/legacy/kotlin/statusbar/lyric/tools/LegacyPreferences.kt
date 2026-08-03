@@ -6,6 +6,12 @@ import statusbar.lyric.tools.LogTools.log
 
 object LegacyPreferences {
     fun get(key: String): XSharedPreferences? {
+        val current = getReadable(key)
+        if (current != null || key == LEGACY_CONFIG_NAME) return current
+        return getReadable(LEGACY_CONFIG_NAME)
+    }
+
+    private fun getReadable(key: String): XSharedPreferences? {
         return try {
             XSharedPreferences(BuildConfig.APPLICATION_ID, key).takeIf { it.file.canRead() }
         } catch (e: Throwable) {
@@ -13,4 +19,6 @@ object LegacyPreferences {
             null
         }
     }
+
+    private const val LEGACY_CONFIG_NAME = "Lyric_Config"
 }

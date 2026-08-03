@@ -9,12 +9,21 @@ import statusbar.lyric.config.Config.Companion.CONFIG_NAME
  */
 object XposedOwnSP {
     private val configHolder = Config(null)
+    private var remoteStore: Api101RemotePreferencesStore? = null
 
     val config: Config
         get() = configHolder
 
+    val isRemotePreferencesAttached: Boolean
+        get() = remoteStore != null
+
+    val isRemotePreferencesReadOnly: Boolean
+        get() = remoteStore?.isReadOnly == true
+
     fun attachRemotePreferences(preferences: SharedPreferences) {
-        configHolder.attach(preferences)
+        val store = Api101RemotePreferencesStore(preferences)
+        remoteStore = store
+        configHolder.attachStore(store)
     }
 
     const val remoteGroup: String = CONFIG_NAME

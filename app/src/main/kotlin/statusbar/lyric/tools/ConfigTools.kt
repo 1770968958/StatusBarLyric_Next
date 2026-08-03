@@ -24,10 +24,13 @@ package statusbar.lyric.tools
 
 import android.annotation.SuppressLint
 import android.content.SharedPreferences
+import statusbar.lyric.config.ConfigStore
 
-class ConfigTools {
+class ConfigTools : ConfigStore {
     private var mSP: SharedPreferences? = null
     private var mSPEditor: SharedPreferences.Editor? = null
+
+    override val isReadOnly: Boolean = false
 
     @SuppressLint("CommitPrefEdits")
     constructor(sharedPreferences: SharedPreferences?) {
@@ -40,7 +43,7 @@ class ConfigTools {
         mSPEditor = sharedPreferences?.edit()
     }
 
-    fun reload() {
+    override fun reload() {
         val reload = mSP?.javaClass?.methods?.firstOrNull {
             it.name == "reload" && it.parameterTypes.isEmpty()
         } ?: return
@@ -52,7 +55,7 @@ class ConfigTools {
         }
     }
 
-    fun put(key: String?, any: Any) {
+    override fun put(key: String?, any: Any) {
         when (any) {
             is Int -> mSPEditor?.putInt(key, any)
             is String -> mSPEditor?.putString(key, any)
@@ -63,7 +66,7 @@ class ConfigTools {
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun <T> opt(key: String, defValue: T): T {
+    override fun <T> opt(key: String, defValue: T): T {
         if (mSP == null) {
             return defValue
         }
@@ -77,7 +80,15 @@ class ConfigTools {
         }
     }
 
-    fun clearConfig() {
+    override fun contains(key: String): Boolean {
+        return mSP?.contains(key) == true
+    }
+
+    override fun snapshot(): Map<String, Any?> {
+        return mSP?.all?.mapValues { it.value } ?: emptyMap()
+    }
+
+    override fun clearConfig() {
         mSPEditor?.clear()?.apply()
     }
 }

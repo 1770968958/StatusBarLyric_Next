@@ -31,14 +31,18 @@ class Config {
         const val CONFIG_NAME = "COMPOSE_CONFIG"
     }
 
-    var config: ConfigTools
+    var config: ConfigStore
 
     constructor(sharedPreferences: SharedPreferences?) {
         config = ConfigTools(sharedPreferences)
     }
 
     fun attach(sharedPreferences: SharedPreferences?) {
-        config.attach(sharedPreferences)
+        config = ConfigTools(sharedPreferences)
+    }
+
+    fun attachStore(store: ConfigStore) {
+        config = store
     }
 
     fun update() {
