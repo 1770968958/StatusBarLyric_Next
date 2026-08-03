@@ -21,8 +21,12 @@
 package statusbar.lyric.hook
 
 import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -33,7 +37,9 @@ import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import statusbar.lyric.config.XposedOwnSP
 import java.lang.reflect.Method
+import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 
 /**
  * The API 101-only SystemUI path. It deliberately keeps the first migration
@@ -42,14 +48,17 @@ import java.util.concurrent.atomic.AtomicBoolean
 class Api101SystemUIHook(
     private val module: XposedModule
 ) {
-    // P1 only displays and hides plain text; colors, icons, scrolling, titles and MIUI hooks are deferred.
     private val mainHandler = Handler(Looper.getMainLooper())
     private val targetHookInstalled = AtomicBoolean(false)
     private val receiverRegistered = AtomicBoolean(false)
+    private val unsupportedConfigLogged = AtomicBoolean(false)
 
     private var lyricView: TextView? = null
     private var pendingLyric: String = ""
-    private var targetIndex: Int = 0
+    private var mountedTarget: View? = null
+    private var mountedParent: ViewGroup? = null
+    private val parentMatchStates = IdentityHashMap<ViewGroup, ParentMatchState>()
+    private val targetParents = IdentityHashMap<View, ViewGroup>()
 
     private val receiver = object : ISuperLyricReceiver.Stub() {
         override fun onLyric(publisher: String?, data: SuperLyricData?) {
@@ -57,28 +66,36 @@ class Api101SystemUIHook(
             if (lyric.isEmpty()) return
 
             mainHandler.post {
-                pendingLyric = lyric
-                lyricView?.let { view ->
-                    view.text = lyric
-                    view.visibility = View.VISIBLE
+                runCatching {
+                    pendingLyric = lyric
+                    lyricView?.let { view ->
+                        view.text = lyric
+                        view.visibility = View.VISIBLE
+                    }
+                    module.log(
+                        android.util.Log.INFO,
+                        TAG,
+                        "API101 lyric received; publisher=${publisher.orEmpty()}; visible=${lyricView != null}"
+                    )
+                }.onFailure { throwable ->
+                    module.log(android.util.Log.WARN, TAG, "API101 lyric update failed", throwable)
                 }
-                module.log(
-                    android.util.Log.INFO,
-                    TAG,
-                    "API101 lyric received; publisher=${publisher.orEmpty()}; visible=${lyricView != null}"
-                )
             }
         }
 
         override fun onStop(publisher: String?, data: SuperLyricData?) {
             mainHandler.post {
-                pendingLyric = ""
-                lyricView?.visibility = View.GONE
-                module.log(
-                    android.util.Log.INFO,
-                    TAG,
-                    "API101 lyric stopped; publisher=${publisher.orEmpty()}"
-                )
+                runCatching {
+                    pendingLyric = ""
+                    lyricView?.visibility = View.GONE
+                    module.log(
+                        android.util.Log.INFO,
+                        TAG,
+                        "API101 lyric stopped; publisher=${publisher.orEmpty()}"
+                    )
+                }.onFailure { throwable ->
+                    module.log(android.util.Log.WARN, TAG, "API101 lyric stop update failed", throwable)
+                }
             }
         }
     }
@@ -123,9 +140,14 @@ class Api101SystemUIHook(
 
             val attachMethod = findMethod(targetClass, "onAttachedToWindow")
                 ?: error("onAttachedToWindow not found on $className")
+            val detachMethod = findMethod(targetClass, "onDetachedFromWindow")
+                ?: error("onDetachedFromWindow not found on $className")
             module.hook(attachMethod)
                 .setPriority(XposedInterface.PRIORITY_DEFAULT)
                 .intercept(TargetViewHooker(this))
+            module.hook(detachMethod)
+                .setPriority(XposedInterface.PRIORITY_DEFAULT)
+                .intercept(TargetViewDetachedHooker(this))
             module.log(
                 android.util.Log.INFO,
                 TAG,
@@ -139,59 +161,203 @@ class Api101SystemUIHook(
 
     private fun onTargetViewAttached(candidate: Any?) {
         val view = candidate as? View ?: return
-        if (!isConfiguredTarget(view)) return
+        val source = view as? TextView ?: return
+        if (view === lyricView) return
+        val match = findConfiguredTarget(source) ?: return
 
         mainHandler.post {
-            val parent = view.parent as? ViewGroup
-            if (parent == null) {
-                module.log(android.util.Log.WARN, TAG, "API101 target View matched without a ViewGroup parent")
-                return@post
-            }
+            runCatching {
+                val parent = match.parent
+                val existingParent = lyricView?.parent as? ViewGroup
+                if (existingParent != null && existingParent !== parent) {
+                    existingParent.removeView(lyricView)
+                }
 
-            val existingParent = lyricView?.parent as? ViewGroup
-            if (existingParent != null && existingParent !== parent) {
-                existingParent.removeView(lyricView)
-            }
+                val viewToMount = lyricView ?: TextView(parent.context).also { created ->
+                    lyricView = created
+                    created.visibility = View.GONE
+                }
+                applyLyricAppearance(viewToMount, source)
 
-            val viewToMount = lyricView ?: TextView(parent.context).also { created ->
-                lyricView = created
-                created.setSingleLine(true)
-                created.maxLines = 1
-                created.visibility = View.GONE
-            }
+                if (viewToMount.parent !== parent) {
+                    val insertIndex = if (XposedOwnSP.config.viewLocation == 0) 0 else parent.childCount
+                    parent.addView(
+                        viewToMount,
+                        insertIndex.coerceIn(0, parent.childCount),
+                        createLayoutParams(view)
+                    )
+                }
 
-            if (viewToMount.parent !== parent) {
-                val layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
+                mountedTarget = view
+                mountedParent = parent
+                if (pendingLyric.isNotEmpty()) {
+                    viewToMount.text = pendingLyric
+                    viewToMount.visibility = View.VISIBLE
+                }
+                module.log(
+                    android.util.Log.INFO,
+                    TAG,
+                    "API101 target View matched and lyric TextView mounted; class=${view.javaClass.name}; parent=${parent.javaClass.name}; index=${match.index}"
                 )
-                val insertIndex = if (XposedOwnSP.config.viewLocation == 0) 0 else parent.childCount
-                parent.addView(viewToMount, insertIndex, layoutParams)
+            }.onFailure { throwable ->
+                module.log(android.util.Log.WARN, TAG, "API101 lyric TextView mount failed", throwable)
             }
-
-            if (pendingLyric.isNotEmpty()) {
-                viewToMount.text = pendingLyric
-                viewToMount.visibility = View.VISIBLE
-            }
-            module.log(
-                android.util.Log.INFO,
-                TAG,
-                "API101 target View matched and lyric TextView mounted; class=${view.javaClass.name}; parent=${parent.javaClass.name}"
-            )
         }
     }
 
-    private fun isConfiguredTarget(view: View): Boolean {
+    private fun onTargetViewDetached(candidate: Any?, parentBeforeDetach: ViewGroup?) {
+        val view = candidate as? View ?: return
+        val parent = synchronized(parentMatchStates) {
+            val knownParent = targetParents.remove(view) ?: parentBeforeDetach
+            if (knownParent != null) {
+                parentMatchStates[knownParent]?.let { state ->
+                    state.matchedIndices.remove(view)
+                    if (state.matchedIndices.isEmpty()) {
+                        parentMatchStates.remove(knownParent)
+                    }
+                }
+            }
+            knownParent
+        }
+
+        if (mountedTarget !== view) return
+        mountedTarget = null
+        mountedParent = null
+        mainHandler.post {
+            runCatching {
+                lyricView?.let { mountedView ->
+                    if (mountedView.parent === parent) {
+                        parent?.removeView(mountedView)
+                    } else {
+                        (mountedView.parent as? ViewGroup)?.removeView(mountedView)
+                    }
+                    mountedView.visibility = View.GONE
+                }
+            }.onFailure { throwable ->
+                module.log(android.util.Log.WARN, TAG, "API101 lyric TextView detach cleanup failed", throwable)
+            }
+        }
+    }
+
+    private fun findConfiguredTarget(view: View): TargetMatch? {
         val config = XposedOwnSP.config
-        if (view !is TextView || view.javaClass.name != config.textViewClassName) return false
-        if (view.id != config.textViewId || view.textSize != config.textSize) return false
+        if (view !is TextView || view.javaClass.name != config.textViewClassName) return null
+        if (view.id != config.textViewId) return null
 
-        val parent = view.parent as? ViewGroup ?: return false
-        if (parent.javaClass.name != config.parentViewClassName || parent.id != config.parentViewId) return false
+        // A zero/default recorded text size means "do not constrain by size".
+        val expectedTextSize = config.textSize
+        if (expectedTextSize > 0f && abs(view.textSize - expectedTextSize) > TEXT_SIZE_EPSILON) {
+            return null
+        }
 
-        if (targetIndex == config.index) return true
-        targetIndex += 1
-        return false
+        val parent = view.parent as? ViewGroup ?: return null
+        if (parent.javaClass.name != config.parentViewClassName || parent.id != config.parentViewId) return null
+
+        val index = synchronized(parentMatchStates) {
+            val state = parentMatchStates.getOrPut(parent) { ParentMatchState() }
+            state.matchedIndices[view] ?: state.nextIndex.also {
+                state.nextIndex += 1
+                state.matchedIndices[view] = it
+                targetParents[view] = parent
+            }
+        }
+        return if (index == config.index) TargetMatch(parent, index) else null
+    }
+
+    private fun applyLyricAppearance(target: TextView, source: TextView) {
+        val config = XposedOwnSP.config
+        target.setSingleLine(true)
+        target.maxLines = 1
+        target.gravity = Gravity.CENTER_VERTICAL
+        target.typeface = source.typeface
+        target.includeFontPadding = source.includeFontPadding
+
+        val lyricSize = if (config.lyricSize > 0) config.lyricSize.toFloat() else source.textSize
+        if (lyricSize > 0f) {
+            target.setTextSize(TypedValue.COMPLEX_UNIT_PX, lyricSize)
+        }
+
+        val lyricColor = parseColor(config.lyricColor)
+        target.setTextColor(lyricColor ?: source.currentTextColor)
+        target.letterSpacing = if (config.lyricLetterSpacing == 0) {
+            source.letterSpacing
+        } else {
+            config.lyricLetterSpacing / 100f
+        }
+        applyBackground(target, config.lyricBackgroundColor, config.lyricBackgroundRadius)
+        logUnsupportedConfigBoundary()
+    }
+
+    private fun applyBackground(target: TextView, value: String, radius: Int) {
+        target.setBackgroundColor(Color.TRANSPARENT)
+        val colors = parseColorList(value)
+        if (colors.isEmpty()) return
+
+        target.background = if (colors.size == 1) {
+            GradientDrawable().apply {
+                setColor(colors[0])
+                if (radius > 0) cornerRadius = radius.toFloat()
+            }
+        } else {
+            GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, colors.toIntArray()).apply {
+                if (radius > 0) cornerRadius = radius.toFloat()
+            }
+        }
+    }
+
+    private fun createLayoutParams(source: View): ViewGroup.LayoutParams {
+        val sourceParams = source.layoutParams
+        val params = runCatching {
+            sourceParams?.javaClass
+                ?.getConstructor(ViewGroup.LayoutParams::class.java)
+                ?.newInstance(sourceParams) as? ViewGroup.LayoutParams
+        }.getOrNull() ?: ViewGroup.MarginLayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+        params.width = ViewGroup.LayoutParams.WRAP_CONTENT
+        params.height = ViewGroup.LayoutParams.MATCH_PARENT
+        (params as? ViewGroup.MarginLayoutParams)?.setMargins(
+            XposedOwnSP.config.lyricStartMargins,
+            XposedOwnSP.config.lyricTopMargins,
+            XposedOwnSP.config.lyricEndMargins,
+            XposedOwnSP.config.lyricBottomMargins
+        )
+        return params
+    }
+
+    private fun parseColor(value: String): Int? {
+        val normalized = value.trim()
+        if (normalized.isEmpty()) return null
+        return runCatching { Color.parseColor(normalized) }.getOrNull()
+    }
+
+    private fun parseColorList(value: String): List<Int> {
+        val tokens = value.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        if (tokens.isEmpty()) return emptyList()
+        return runCatching { tokens.map { Color.parseColor(it) } }.getOrElse { throwable ->
+            module.log(android.util.Log.WARN, TAG, "API101 background color ignored: $value", throwable)
+            emptyList()
+        }
+    }
+
+    private fun logUnsupportedConfigBoundary() {
+        val config = XposedOwnSP.config
+        val hasDeferredBehavior = config.iconSwitch ||
+            config.titleSwitch ||
+            config.lyricGradientColor.isNotEmpty() ||
+            config.lyricStrokeWidth != 0 ||
+            config.lyricAnimation != 0 ||
+            config.dynamicLyricSpeed ||
+            config.lyricWidth != 0 ||
+            config.mHyperOSTexture
+        if (hasDeferredBehavior && unsupportedConfigLogged.compareAndSet(false, true)) {
+            module.log(
+                android.util.Log.INFO,
+                TAG,
+                "API101 TODO: icon/title/scroll/gradient/stroke/animation/width/MIUI behavior remains deferred"
+            )
+        }
     }
 
     private fun findMethod(clazz: Class<*>, name: String): Method? {
@@ -215,7 +381,30 @@ class Api101SystemUIHook(
         }
     }
 
+    private class TargetViewDetachedHooker(
+        private val owner: Api101SystemUIHook
+    ) : XposedInterface.Hooker {
+        override fun intercept(chain: XposedInterface.Chain): Any? {
+            val view = chain.getThisObject() as? View
+            val parent = view?.parent as? ViewGroup
+            val result = chain.proceed()
+            owner.onTargetViewDetached(view, parent)
+            return result
+        }
+    }
+
+    private data class TargetMatch(
+        val parent: ViewGroup,
+        val index: Int
+    )
+
+    private class ParentMatchState(
+        var nextIndex: Int = 0,
+        val matchedIndices: IdentityHashMap<View, Int> = IdentityHashMap()
+    )
+
     private companion object {
         const val TAG = "StatusBarLyric/API101"
+        const val TEXT_SIZE_EPSILON = 0.5f
     }
 }
