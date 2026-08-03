@@ -20,13 +20,14 @@ if (rootProject.file("local.properties").canRead()) {
 android {
     namespace = "statusbar.lyric"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "statusbar.lyric"
         minSdk = 30
         targetSdk = 36
         versionCode = 100
-        versionName = "1.0.0"
+        versionName = "1.0.1"
         buildConfigField("long", "BUILD_TIME", "${buildTime}L")
         buildConfigField("int", "COMPOSE_CONFIG_VERSION", "1")
         setProperty("archivesBaseName", "StatusBarLyric_Next-$versionName($versionCode)")
