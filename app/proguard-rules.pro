@@ -21,6 +21,7 @@
 #-renamesourcefileattribute SourceFile
 -optimizationpasses 5
 -keep class statusbar.lyric.hook.MainHook { <init>(); }
+-keep class statusbar.lyric.hook.Api101Module { <init>(); }
 -keep class statusbar.lyric.tools.ActivityTools { isHook(); }
 -dontskipnonpubliclibraryclassmembers
 -allowaccessmodification

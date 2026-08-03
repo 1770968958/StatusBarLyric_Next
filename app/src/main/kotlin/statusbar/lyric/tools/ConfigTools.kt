@@ -24,32 +24,32 @@ package statusbar.lyric.tools
 
 import android.annotation.SuppressLint
 import android.content.SharedPreferences
-import de.robv.android.xposed.XSharedPreferences
-import statusbar.lyric.tools.Tools.isNull
 
 class ConfigTools {
-    private var xSP: XSharedPreferences? = null
     private var mSP: SharedPreferences? = null
     private var mSPEditor: SharedPreferences.Editor? = null
 
-    constructor(xSharedPreferences: XSharedPreferences?) {
-        xSP = xSharedPreferences
-        mSP = xSharedPreferences
+    @SuppressLint("CommitPrefEdits")
+    constructor(sharedPreferences: SharedPreferences?) {
+        attach(sharedPreferences)
     }
 
     @SuppressLint("CommitPrefEdits")
-    constructor(sharedPreferences: SharedPreferences) {
+    fun attach(sharedPreferences: SharedPreferences?) {
         mSP = sharedPreferences
-        mSPEditor = sharedPreferences.edit()
+        mSPEditor = sharedPreferences?.edit()
     }
 
     fun reload() {
-        xSP.isNull {
-            xSP = Tools.getPref("Lyric_Config")
-            mSP = xSP
-            return
+        val reload = mSP?.javaClass?.methods?.firstOrNull {
+            it.name == "reload" && it.parameterTypes.isEmpty()
+        } ?: return
+        try {
+            reload.isAccessible = true
+            reload.invoke(mSP)
+        } catch (_: Throwable) {
+            // SharedPreferences implementations without reload are already current.
         }
-        xSP?.reload()
     }
 
     fun put(key: String?, any: Any) {
@@ -64,7 +64,7 @@ class ConfigTools {
 
     @Suppress("UNCHECKED_CAST")
     fun <T> opt(key: String, defValue: T): T {
-        mSP.isNull {
+        if (mSP == null) {
             return defValue
         }
         return when (defValue) {

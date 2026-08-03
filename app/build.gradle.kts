@@ -22,6 +22,17 @@ android {
     compileSdk = 36
     buildToolsVersion = "36.0.0"
 
+    flavorDimensions += "runtime"
+
+    productFlavors {
+        create("legacy") {
+            dimension = "runtime"
+        }
+        create("api101") {
+            dimension = "runtime"
+        }
+    }
+
     defaultConfig {
         applicationId = "statusbar.lyric"
         minSdk = 30
@@ -57,11 +68,21 @@ android {
     buildFeatures.buildConfig = true
     dependenciesInfo.includeInApk = false
     kotlin.jvmToolchain(21)
-    packaging.resources.excludes += "**"
+    packaging.resources.excludes += setOf(
+        "META-INF/AL2.0",
+        "META-INF/LGPL2.1"
+    )
+    packaging.resources.pickFirsts += setOf(
+        "META-INF/LICENSE*",
+        "META-INF/NOTICE*"
+    )
 }
 
 dependencies {
-    compileOnly(libs.xposed)
+    // Legacy and API 101 runtime APIs are kept out of the main dependency set.
+    add("legacyCompileOnly", libs.xposed)
+    add("legacyImplementation", libs.ezXHelper)
+    add("api101CompileOnly", libs.libxposed.api)
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.foundation)
@@ -73,7 +94,6 @@ dependencies {
     implementation(libs.haze)
     implementation(libs.miuix)
 
-    implementation(libs.ezXHelper)
     implementation(libs.superlyricapi)
 
     debugImplementation(libs.androidx.ui.tooling.preview)

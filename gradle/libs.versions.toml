@@ -5,6 +5,7 @@ androidx-activity-compose = "1.10.1"
 androidx-compose-foundation = "1.8.1"
 androidx-navigation-compose = "2.9.0"
 ezXHelper = "2.2.1"
+libxposed-api = "101.0.0"
 haze = "1.5.4"
 kotlin = "2.1.20"
 miuix = "0.4.3"
@@ -21,6 +22,7 @@ androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "androidx-navigation-compose" }
 ezXHelper = { module = "com.github.kyuubiran:EzXHelper", version.ref = "ezXHelper" }
+libxposed-api = { module = "io.github.libxposed:api", version.ref = "libxposed-api" }
 haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
 miuix = { module = "top.yukonga.miuix.kmp:miuix-android", version.ref = "miuix" }
 superlyricapi = { module = "com.github.HChenX:SuperLyricApi", version.ref = "super-lyric-api" }
