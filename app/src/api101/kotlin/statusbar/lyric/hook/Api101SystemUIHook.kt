@@ -52,6 +52,7 @@ class Api101SystemUIHook(
     private val targetHookInstalled = AtomicBoolean(false)
     private val receiverRegistered = AtomicBoolean(false)
     private val unsupportedConfigLogged = AtomicBoolean(false)
+    private val systemUiTest = Api101SystemUITest(module)
 
     private var lyricView: TextView? = null
     private var pendingLyric: String = ""
@@ -103,6 +104,11 @@ class Api101SystemUIHook(
     fun onApplicationAttached(context: Context, classLoader: ClassLoader) {
         if (!XposedOwnSP.config.masterSwitch) {
             module.log(android.util.Log.INFO, TAG, "API101 SystemUI hook skipped because masterSwitch is off")
+            return
+        }
+
+        if (XposedOwnSP.config.testMode) {
+            systemUiTest.start(context)
             return
         }
 
