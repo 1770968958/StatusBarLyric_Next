@@ -1,4 +1,6 @@
 .gradle
+.gradle-user-home/
+.gradle-tmp/
 app/release
 app/build
 app/debug
@@ -8,3 +10,19 @@ local.properties
 build
 hs_err_*.log
 /.kotlin
+
+# Local signing keys and sensitive config
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+key
+release.keystore
+
+# Android / Gradle generated outputs
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex

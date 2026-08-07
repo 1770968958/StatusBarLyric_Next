@@ -95,6 +95,9 @@ fun SystemSpecialPage(
     val mMiuiPadOptimize = remember { mutableStateOf(config.mMiuiPadOptimize) }
     val hideCarrier = remember { mutableStateOf(config.hideCarrier) }
     val mHyperOSTexture = remember { mutableStateOf(config.mHyperOSTexture) }
+    val mHyperOSTextureRadio = remember { mutableStateOf(config.mHyperOSTextureRadio) }
+    val mHyperOSTextureCorner = remember { mutableStateOf(config.mHyperOSTextureCorner) }
+    val mHyperOSTextureBgColor = remember { mutableStateOf(config.mHyperOSTextureBgColor) }
     val mAutomateFocusedNotice = remember { mutableStateOf(config.automateFocusedNotice) }
     val showDialog = remember { mutableStateOf(false) }
     val showRadioDialog = remember { mutableStateOf(false) }
@@ -276,45 +279,54 @@ fun SystemSpecialPage(
         }
     }
     RestartDialog(showDialog)
-    RadioDialog(showRadioDialog)
-    CornerDialog(showCornerDialog)
-    BgColorDialog(showBgColorDialog)
+    RadioDialog(showRadioDialog, mHyperOSTextureRadio)
+    CornerDialog(showCornerDialog, mHyperOSTextureCorner)
+    BgColorDialog(showBgColorDialog, mHyperOSTextureBgColor)
 }
 
 @Composable
-fun RadioDialog(showDialog: MutableState<Boolean>) {
+fun RadioDialog(showDialog: MutableState<Boolean>, mHyperOSTextureRadio: MutableState<Int>) {
     IntSettingDialog(
         showDialog = showDialog,
         title = stringResource(R.string.hyperos_texture_radio),
         summary = stringResource(R.string.lyric_stroke_width_tips),
-        initialValue = config.mHyperOSTextureRadio,
+        initialValue = mHyperOSTextureRadio.value,
         validRange = 0..400,
         fallbackValue = { 25 },
-        onValueChange = { config.mHyperOSTextureRadio = it }
+        onValueChange = {
+            config.mHyperOSTextureRadio = it
+            mHyperOSTextureRadio.value = it
+        }
     )
 }
 
 @Composable
-fun CornerDialog(showDialog: MutableState<Boolean>) {
+fun CornerDialog(showDialog: MutableState<Boolean>, mHyperOSTextureCorner: MutableState<Int>) {
     IntSettingDialog(
         showDialog = showDialog,
         title = stringResource(R.string.hyperos_texture_corner),
         summary = stringResource(R.string.lyric_letter_spacing_tips),
-        initialValue = config.mHyperOSTextureCorner,
+        initialValue = mHyperOSTextureCorner.value,
         validRange = 0..50,
         fallbackValue = { 25 },
-        onValueChange = { config.mHyperOSTextureCorner = it }
+        onValueChange = {
+            config.mHyperOSTextureCorner = it
+            mHyperOSTextureCorner.value = it
+        }
     )
 }
 
 @Composable
-fun BgColorDialog(showDialog: MutableState<Boolean>) {
+fun BgColorDialog(showDialog: MutableState<Boolean>, mHyperOSTextureBgColor: MutableState<String>) {
     ColorSettingDialog(
         showDialog = showDialog,
         title = stringResource(R.string.hyperos_texture_color),
         summary = stringResource(R.string.lyric_color_and_transparency_tips),
-        initialValue = config.mHyperOSTextureBgColor,
+        initialValue = mHyperOSTextureBgColor.value,
         defaultValue = "#15818181",
-        onValueChange = { config.mHyperOSTextureBgColor = it }
+        onValueChange = {
+            config.mHyperOSTextureBgColor = it
+            mHyperOSTextureBgColor.value = it
+        }
     )
 }
