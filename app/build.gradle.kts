@@ -37,8 +37,8 @@ android {
         applicationId = "statusbar.lyric"
         minSdk = 30
         targetSdk = 36
-        versionCode = 101
-        versionName = "1.0.2"
+        versionCode = 102
+        versionName = "1.0.3"
         buildConfigField("long", "BUILD_TIME", "${buildTime}L")
         buildConfigField("int", "COMPOSE_CONFIG_VERSION", "1")
         setProperty("archivesBaseName", "StatusBarLyric_Next-$versionName($versionCode)")
@@ -83,6 +83,7 @@ dependencies {
     add("legacyCompileOnly", libs.xposed)
     add("legacyImplementation", libs.ezXHelper)
     add("api101CompileOnly", libs.libxposed.api)
+    add("api101Implementation", libs.libxposed.service)
 
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.foundation)

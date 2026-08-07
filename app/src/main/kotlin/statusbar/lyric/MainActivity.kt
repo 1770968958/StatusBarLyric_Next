@@ -36,13 +36,16 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import statusbar.lyric.config.ActivityOwnSP
 import statusbar.lyric.config.ActivityOwnSP.config
 import statusbar.lyric.config.ActivityOwnSP.updateConfigVer
 import statusbar.lyric.data.Data
+import statusbar.lyric.runtime.ModuleRuntimeBridge
 import statusbar.lyric.tools.ActivityTools
 import statusbar.lyric.tools.ActivityTools.dataList
-import statusbar.lyric.tools.ActivityTools.isHook
 import statusbar.lyric.tools.BackupTools
 import statusbar.lyric.tools.ConfigTools
 import statusbar.lyric.tools.LogTools
@@ -57,7 +60,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         lateinit var appContext: Context private set
 
-        var isLoad: Boolean = false
+        var isLoad by mutableStateOf(false)
 
         var testReceiver = false
     }
@@ -88,7 +91,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        isLoad = isHook()
+        ModuleRuntimeBridge.initialize { isLoad = it }
         init()
 
         setContent {
