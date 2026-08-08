@@ -84,6 +84,7 @@ import statusbar.lyric.tools.Tools.ifNotNull
 import statusbar.lyric.tools.Tools.isLandscape
 import statusbar.lyric.tools.Tools.isNot
 import statusbar.lyric.tools.Tools.isNotNull
+import statusbar.lyric.runtime.InternalBroadcasts
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.icon.IconBitmapDecoder
@@ -754,14 +755,22 @@ class SystemUILyric : BaseHook() {
             ("Register SuperLyric failed: " + it.message).log()
         }
 
+        val updateConfigFilter = IntentFilter(InternalBroadcasts.ACTION_UPDATE_CONFIG)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(
                 updateConfig,
-                IntentFilter("updateConfig"),
+                updateConfigFilter,
+                InternalBroadcasts.PERMISSION_INTERNAL_CONTROL,
+                null,
                 Context.RECEIVER_EXPORTED
             )
         } else {
-            context.registerReceiver(updateConfig, IntentFilter("updateConfig"))
+            context.registerReceiver(
+                updateConfig,
+                updateConfigFilter,
+                InternalBroadcasts.PERMISSION_INTERNAL_CONTROL,
+                null
+            )
         }
 
         if (config.hideLyricWhenLockScreen) {

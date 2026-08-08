@@ -32,6 +32,7 @@ import androidx.core.net.toUri
 import statusbar.lyric.MainActivity
 import statusbar.lyric.R
 import statusbar.lyric.data.Data
+import statusbar.lyric.runtime.InternalBroadcasts
 import statusbar.lyric.tools.LogTools.log
 import kotlin.system.exitProcess
 
@@ -45,8 +46,8 @@ object ActivityTools {
 
     fun changeConfig(type: String = "normal", path: String = "") {
         handler.postDelayed({
-            MainActivity.appContext.sendBroadcast(Intent("updateConfig").apply {
-                setPackage("com.android.systemui")
+            MainActivity.appContext.sendBroadcast(Intent(InternalBroadcasts.ACTION_UPDATE_CONFIG).apply {
+                setPackage(InternalBroadcasts.SYSTEM_UI_PACKAGE)
                 putExtra("type", type)
                 putExtra("path", path)
             })

@@ -91,7 +91,6 @@ class Api101SystemUIHook(
     private val darkIconHookInstalled = AtomicBoolean(false)
     private val configObserverRegistered = AtomicBoolean(false)
     private val screenReceiverRegistered = AtomicBoolean(false)
-    private val configReceiverRegistered = AtomicBoolean(false)
     private val notificationHookInstalled = AtomicBoolean(false)
     private val touchHookInstalled = AtomicBoolean(false)
     private val xiaomiHooksInstalled = AtomicBoolean(false)
@@ -252,7 +251,6 @@ class Api101SystemUIHook(
         registerXiaomiHooks(classLoader)
         registerFocusNotificationHook(classLoader)
         registerTargetViewHook(context, classLoader)
-        registerConfigReceiver(context)
         registerScreenReceiver(context)
     }
 
@@ -260,27 +258,6 @@ class Api101SystemUIHook(
         if (!configObserverRegistered.compareAndSet(false, true)) return
         XposedOwnSP.registerOnPreferenceChangeListener { _, _ ->
             scheduleConfigRefresh()
-        }
-    }
-
-    private fun registerConfigReceiver(context: Context) {
-        if (!configReceiverRegistered.compareAndSet(false, true)) return
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(receiverContext: Context, intent: Intent) {
-                scheduleConfigRefresh()
-            }
-        }
-        runCatching {
-            val filter = IntentFilter(ACTION_UPDATE_CONFIG)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
-            } else {
-                @Suppress("UnspecifiedRegisterReceiverFlag")
-                context.registerReceiver(receiver, filter)
-            }
-        }.onFailure { throwable ->
-            configReceiverRegistered.set(false)
-            module.log(android.util.Log.WARN, TAG, "API101 config receiver registration failed", throwable)
         }
     }
 
@@ -1241,7 +1218,6 @@ class Api101SystemUIHook(
 
     private companion object {
         const val TAG = "StatusBarLyric/API101"
-        const val ACTION_UPDATE_CONFIG = "updateConfig"
         const val DARK_ICON_DISPATCHER_CLASS = "com.android.systemui.statusbar.phone.DarkIconDispatcherImpl"
         const val PHONE_STATUS_BAR_VIEW_CLASS = "com.android.systemui.statusbar.phone.PhoneStatusBarView"
         const val NOTIFICATION_ICON_AREA_CONTROLLER_CLASS = "com.android.systemui.statusbar.phone.NotificationIconAreaController"
