@@ -35,7 +35,6 @@ import android.graphics.LinearGradient
 import android.graphics.Point
 import android.graphics.PorterDuff
 import android.graphics.Shader
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -51,7 +50,6 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.graphics.toColorInt
 import com.github.kyuubiran.ezxhelper.ClassUtils.loadClassOrNull
 import com.github.kyuubiran.ezxhelper.EzXHelper.moduleRes
 import com.github.kyuubiran.ezxhelper.HookFactory
@@ -90,6 +88,8 @@ import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.ViewVisibilityOverrideState
 import statusbar.lyric.runtime.icon.IconBitmapDecoder
 import statusbar.lyric.runtime.input.MediaKeyDispatcher
+import statusbar.lyric.runtime.style.RuntimeAppearanceSnapshot
+import statusbar.lyric.runtime.style.TypefaceFileCache
 import statusbar.lyric.tools.Tools.observableChange
 import statusbar.lyric.tools.XiaomiUtils.isHyperOS
 import statusbar.lyric.view.LyricSwitchView
@@ -110,10 +110,11 @@ class SystemUILyric : BaseHook() {
         if (oldValue == newValue) return@observableChange
         "Changing Color: $newValue".log()
         goMainThread {
-            if (config.lyricColor.isEmpty() && config.lyricGradientColor.isEmpty()) {
+            val appearance = currentAppearanceSnapshot()
+            if (appearance.usesDynamicLyricColor) {
                 lyricView.setTextColor(newValue)
             }
-            if (config.iconColor.isEmpty()) {
+            if (appearance.iconColor == null) {
                 iconView.setColorFilter(newValue, PorterDuff.Mode.SRC_IN)
             }
         }
@@ -163,7 +164,6 @@ class SystemUILyric : BaseHook() {
 
     private var theoreticalWidth: Int = 0
     private var fullscreenModeType: Int = -1
-    private val lyricMeasureTextView: TextView by lazy { TextView(context) }
     private val iconDecodeThread: HandlerThread by lazy {
         HandlerThread("StatusBarLyric-IconDecode").apply { start() }
     }
@@ -184,8 +184,9 @@ class SystemUILyric : BaseHook() {
         object : LyricSwitchView(context) {
             override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
                 super.onSizeChanged(w, h, oldw, oldh)
-                if (config.lyricGradientColor.isNotEmpty()) {
-                    val colors = parseColorList(config.lyricGradientColor)
+                val appearance = currentAppearanceSnapshot()
+                if (appearance.hasLyricGradient) {
+                    val colors = appearance.lyricGradientColors
                     if (colors.isEmpty()) {
                         setTextColor(Color.WHITE)
                     } else if (colors.size < 2) {
@@ -241,6 +242,8 @@ class SystemUILyric : BaseHook() {
         set(value) { statusBatteryContainerRef = value?.let(::WeakReference) }
     private val targetViewMatcher = TargetViewMatcher()
     private val visibilityOverrides = ViewVisibilityOverrideState()
+    private val typefaceFileCache = TypefaceFileCache()
+    private var appearanceSnapshot: RuntimeAppearanceSnapshot? = null
     private val mediaKeyDispatcher by lazy { MediaKeyDispatcher(context) }
     private val observedTargetViews = Collections.newSetFromMap(WeakHashMap<TextView, Boolean>())
     private val targetAttachStateListener = object : View.OnAttachStateChangeListener {
@@ -509,12 +512,13 @@ class SystemUILyric : BaseHook() {
             } else {
                 targetView.addView(lyricLayout)
             }
-            if (isHyperOS && config.mHyperOSTexture) {
-                val blurRadio = config.mHyperOSTextureRadio
-                val cornerRadius = cornerRadius(config.mHyperOSTextureCorner.toFloat())
+            val appearance = currentAppearanceSnapshot()
+            if (isHyperOS && appearance.hyperTextureEnabled) {
+                val blurRadio = appearance.hyperTextureRadius
+                val cornerRadius = cornerRadius(appearance.hyperTextureCorner.toFloat())
                 val blendModes = arrayOf(
-                    intArrayOf(106, config.mHyperOSTextureBgColor.toColorInt()),
-                    intArrayOf(3, config.mHyperOSTextureBgColor.toColorInt())
+                    intArrayOf(106, appearance.hyperTextureBackgroundColor),
+                    intArrayOf(3, appearance.hyperTextureBackgroundColor)
                 )
                 lyricLayout.setBackgroundBlur(blurRadio, cornerRadius, blendModes)
             }
@@ -829,19 +833,19 @@ class SystemUILyric : BaseHook() {
                             setScrollSpeed(boundedSpeed)
                             "Delay mode - Duration: ${durationInSeconds}, Speed: $boundedSpeed".log()
                         }
-                    } else if (config.dynamicLyricSpeed) {
+                    } else if (currentAppearanceSnapshot().dynamicLyricSpeed) {
                         val proportion = i.toFloat() / lyricWidth.toFloat()
                         val speed = 10f * proportion + 0.7f
                         setScrollSpeed(speed)
                         "Dynamic mode - Proportion: $proportion, Speed: $speed".log()
                     }
                 } else {
-                    setScrollSpeed(config.lyricSpeed.toFloat())
+                    setScrollSpeed(currentAppearanceSnapshot().lyricSpeed)
                 }
                 if (isRandomAnima) {
                     val animation = randomAnima
-                    val interpolator = config.lyricInterpolator
-                    val duration = config.animationDuration
+                    val interpolator = appearance.lyricInterpolator
+                    val duration = appearance.animationDurationMillis
                     inAnimation =
                         LyricViewTools.switchViewInAnima(animation, interpolator, duration)
                     outAnimation = LyricViewTools.switchViewOutAnima(animation, duration)
@@ -881,15 +885,6 @@ class SystemUILyric : BaseHook() {
         }
     }
 
-    private fun parseColorList(value: String): List<Int> {
-        return runCatching {
-            value.split(",")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .map { it.toColorInt() }
-        }.getOrDefault(emptyList())
-    }
-
     // 更改图标
     private fun changeIcon(base64Icon: String) {
         if (!iconSwitch) return
@@ -917,71 +912,67 @@ class SystemUILyric : BaseHook() {
     private fun updateConfig(delay: Long = 0L) {
         "Updating Config".log()
         config.update()
+        refreshAppearanceSnapshot()
         goMainThread(delay) {
+            val appearance = currentAppearanceSnapshot()
             lyricView.apply {
                 setTextSize(
                     TypedValue.COMPLEX_UNIT_PX,
-                    if (config.lyricSize == 0) clockView.textSize else config.lyricSize.toFloat()
+                    if (appearance.lyricSizePx == 0) clockView.textSize else appearance.lyricSizePx.toFloat()
                 )
                 setMargins(
-                    config.lyricStartMargins,
-                    config.lyricTopMargins,
-                    config.lyricEndMargins,
-                    config.lyricBottomMargins
+                    appearance.lyricStartMargin,
+                    appearance.lyricTopMargin,
+                    appearance.lyricEndMargin,
+                    appearance.lyricBottomMargin
                 )
-                if (config.lyricGradientColor.isEmpty()) {
-                    if (config.lyricColor.isEmpty()) {
-                        setTextColor(clockView.currentTextColor)
-                    } else {
-                        setTextColor(config.lyricColor.toColorInt())
-                    }
+                if (!appearance.hasLyricGradient) {
+                    setLinearGradient(null)
+                    setTextColor(appearance.lyricColor ?: clockView.currentTextColor)
                 }
-                setLetterSpacings(config.lyricLetterSpacing / 100f)
-                setStrokeWidth(config.lyricStrokeWidth / 100f)
-                if (!config.dynamicLyricSpeed) setScrollSpeed(config.lyricSpeed.toFloat())
-                if (config.lyricBackgroundColor.isNotEmpty()) {
-                    val colors = parseColorList(config.lyricBackgroundColor)
-                    if (colors.size < 2) {
-                        colors.firstOrNull()?.let { color ->
-                            if (config.lyricBackgroundRadius != 0) {
-                                setBackgroundColor(Color.TRANSPARENT)
-                                background = GradientDrawable().apply {
-                                    cornerRadius = config.lyricBackgroundRadius.toFloat()
-                                    setColor(color)
-                                }
-                            } else {
-                                setBackgroundColor(color)
+                setLetterSpacings(appearance.lyricLetterSpacingOverride ?: clockView.letterSpacing)
+                setStrokeWidth(appearance.lyricStrokeWidth)
+                if (!appearance.dynamicLyricSpeed) setScrollSpeed(appearance.lyricSpeed)
+                val colors = appearance.lyricBackgroundColors
+                if (colors.isEmpty()) {
+                    setBackgroundColor(Color.TRANSPARENT)
+                } else if (colors.size < 2) {
+                    colors.firstOrNull()?.let { color ->
+                        if (appearance.lyricBackgroundRadius != 0) {
+                            setBackgroundColor(Color.TRANSPARENT)
+                            background = GradientDrawable().apply {
+                                cornerRadius = appearance.lyricBackgroundRadius.toFloat()
+                                setColor(color)
                             }
+                        } else {
+                            setBackgroundColor(color)
                         }
-                    } else {
-                        val gradientDrawable = GradientDrawable(
-                            GradientDrawable.Orientation.LEFT_RIGHT, colors.toIntArray()
-                        ).apply {
-                            if (config.lyricBackgroundRadius != 0) {
-                                cornerRadius = config.lyricBackgroundRadius.toFloat()
-                            }
+                    }
+                } else {
+                    background = GradientDrawable(
+                        GradientDrawable.Orientation.LEFT_RIGHT, colors.toIntArray()
+                    ).apply {
+                        if (appearance.lyricBackgroundRadius != 0) {
+                            cornerRadius = appearance.lyricBackgroundRadius.toFloat()
                         }
-                        background = gradientDrawable
                     }
                 }
 
-                val animation = config.lyricAnimation
+                val animation = appearance.lyricAnimation
                 isRandomAnima = animation == 11
                 if (!isRandomAnima) {
-                    val interpolator = config.lyricInterpolator
-                    val duration = config.animationDuration
+                    val appearance = currentAppearanceSnapshot()
+                    val interpolator = appearance.lyricInterpolator
+                    val duration = appearance.animationDurationMillis
                     inAnimation =
                         LyricViewTools.switchViewInAnima(animation, interpolator, duration)
                     outAnimation = LyricViewTools.switchViewOutAnima(animation, duration)
                 }
-                runCatching {
-                    val file = File("${context.filesDir.path}/font")
-                    if (file.exists() && file.canRead()) {
-                        setTypeface(Typeface.createFromFile(file))
-                    }
-                }
+                setTypeface(
+                    typefaceFileCache.resolve(File(context.filesDir, "font"), clockView.typeface)
+                )
             }
-            if (!config.iconSwitch) {
+            if (!appearance.iconEnabled) {
                 iconView.hideView()
                 iconSwitch = false
             } else {
@@ -993,29 +984,21 @@ class SystemUILyric : BaseHook() {
                         LinearLayout.LayoutParams.MATCH_PARENT
                     ).apply {
                         setMargins(
-                            config.iconStartMargins,
-                            config.iconTopMargins,
+                            appearance.iconStartMargin,
+                            appearance.iconTopMargin,
                             0,
-                            config.iconBottomMargins
+                            appearance.iconBottomMargin
                         )
-                        if (config.iconSize == 0) {
+                        if (appearance.iconSizePx == 0) {
                             width = clockView.height / 2
                             height = clockView.height / 2
                         } else {
-                            width = config.iconSize
-                            height = config.iconSize
+                            width = appearance.iconSizePx
+                            height = appearance.iconSizePx
                         }
                     }
-                    if (config.iconColor.isEmpty()) {
-                        setColorFilter(clockView.currentTextColor, PorterDuff.Mode.SRC_IN)
-                    } else {
-                        setColorFilter(config.iconColor.toColorInt(), PorterDuff.Mode.SRC_IN)
-                    }
-                    if (config.iconBgColor.isEmpty()) {
-                        setBackgroundColor(Color.TRANSPARENT)
-                    } else {
-                        setBackgroundColor(config.iconBgColor.toColorInt())
-                    }
+                    setColorFilter(appearance.iconColor ?: clockView.currentTextColor, PorterDuff.Mode.SRC_IN)
+                    setBackgroundColor(appearance.iconBackgroundColor)
                 }
             }
             if (isMusicPlaying && !isHiding) {
@@ -1029,34 +1012,34 @@ class SystemUILyric : BaseHook() {
         }
     }
 
-    private fun getLyricWidth(lyric: String): Int {
-        "Getting Lyric Width".log()
-        val textView = lyricMeasureTextView.apply {
-            setTextSize(
-                TypedValue.COMPLEX_UNIT_PX,
-                if (config.lyricSize == 0) clockView.textSize else config.lyricSize.toFloat()
-            )
-            setTypeface(clockView.typeface)
-            letterSpacing = config.lyricLetterSpacing / 100f
-            paint.strokeWidth = config.lyricStrokeWidth / 100f
-        }
-        val textWidth = textView.paint.measureText(lyric).toInt()
-        theoreticalWidth = textWidth
-        val availableWidth = targetView.width - config.lyricStartMargins - config.lyricEndMargins
-        return if (config.lyricWidth == 0) {
-            min(textWidth, availableWidth)
-        } else {
-            if (config.fixedLyricWidth) {
-                scaleWidth()
-            } else {
-                min(textWidth, scaleWidth())
-            }
+    private fun currentAppearanceSnapshot(): RuntimeAppearanceSnapshot {
+        return appearanceSnapshot ?: RuntimeAppearanceSnapshot.from(config).also {
+            appearanceSnapshot = it
         }
     }
 
-    private fun scaleWidth(): Int {
+    private fun refreshAppearanceSnapshot() {
+        appearanceSnapshot = RuntimeAppearanceSnapshot.from(config)
+    }
+
+    private fun getLyricWidth(lyric: String): Int {
+        "Getting Lyric Width".log()
+        val appearance = currentAppearanceSnapshot()
+        val textWidth = lyricView.measureText(lyric).toInt()
+        theoreticalWidth = textWidth
+        val availableWidth = targetView.width - appearance.lyricStartMargin - appearance.lyricEndMargin
+        return if (appearance.lyricWidthPercent == 0) {
+            min(textWidth, availableWidth)
+        } else if (appearance.fixedLyricWidth) {
+            scaleWidth(appearance.lyricWidthPercent)
+        } else {
+            min(textWidth, scaleWidth(appearance.lyricWidthPercent))
+        }
+    }
+
+    private fun scaleWidth(widthPercent: Int): Int {
         "Scale Width".log()
-        return (config.lyricWidth / 100f * if (context.isLandscape()) displayHeight else displayWidth).toInt()
+        return (widthPercent / 100f * if (context.isLandscape()) displayHeight else displayWidth).toInt()
     }
 
     inner class UpdateConfig : BroadcastReceiver() {

@@ -61,6 +61,8 @@ import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.icon.IconBitmapDecoder
 import statusbar.lyric.runtime.input.MediaKeyDispatcher
 import statusbar.lyric.runtime.scheduler.ResettableHandlerTask
+import statusbar.lyric.runtime.style.RuntimeAppearanceSnapshot
+import statusbar.lyric.runtime.style.TypefaceFileCache
 import statusbar.lyric.tools.BlurTools.cornerRadius
 import statusbar.lyric.tools.BlurTools.setBackgroundBlur
 import statusbar.lyric.tools.LyricViewTools
@@ -103,6 +105,9 @@ class Api101SystemUIHook(
     private val visibilityOverrides = ViewVisibilityOverrideState()
     private val lyricDisplayState = Api101LyricDisplayState(visibilityOverrides)
     private val targetViewMatcher = TargetViewMatcher()
+    private val typefaceFileCache = TypefaceFileCache()
+    private var appearanceSnapshot: RuntimeAppearanceSnapshot? = null
+    private var appliedAppearanceKey: AppliedAppearanceKey? = null
     private var mediaKeyDispatcher: MediaKeyDispatcher? = null
     private val iconDecodeGeneration = AtomicLong(0L)
     private val iconDecodeExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -180,6 +185,7 @@ class Api101SystemUIHook(
     private val configRefreshRunnable = Runnable {
         runCatching {
             XposedOwnSP.config.update()
+            refreshAppearanceSnapshot()
             applyConfiguration()
             if (isMusicPlaying && pendingLyric.isNotEmpty()) {
                 showLyric(pendingLyric, pendingDelay)
@@ -689,7 +695,7 @@ class Api101SystemUIHook(
         val lyric = object : LyricSwitchView(context) {
             override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
                 super.onSizeChanged(w, h, oldw, oldh)
-                applyGradient(this)
+                applyGradient(this, currentAppearanceSnapshot())
             }
         }.apply {
             visibility = View.VISIBLE
@@ -745,37 +751,39 @@ class Api101SystemUIHook(
         )
     }
 
-    private fun applyLyricAppearance(target: LyricSwitchView, source: TextView) {
-        val config = XposedOwnSP.config
+    private fun applyLyricAppearance(
+        target: LyricSwitchView,
+        source: TextView,
+        appearance: RuntimeAppearanceSnapshot
+    ) {
         target.setSingleLine(true)
         target.setMaxLines(1)
-        target.setTypeface(source.typeface)
 
-        val lyricSize = if (config.lyricSize > 0) config.lyricSize.toFloat() else source.textSize
+        val lyricSize = if (appearance.lyricSizePx > 0) {
+            appearance.lyricSizePx.toFloat()
+        } else {
+            source.textSize
+        }
         if (lyricSize > 0f) {
             target.setTextSize(TypedValue.COMPLEX_UNIT_PX, lyricSize)
         }
 
-        val lyricColor = parseColor(config.lyricColor)
-        val useDynamicColor = config.lyricColor.isEmpty() && config.lyricGradientColor.isEmpty()
         target.setTextColor(
-            lyricColor ?: lyricDisplayState.resolveTextColor(source.currentTextColor, useDynamicColor)
+            appearance.lyricColor ?: lyricDisplayState.resolveTextColor(
+                source.currentTextColor,
+                appearance.usesDynamicLyricColor
+            )
         )
         target.setLinearGradient(null)
-        target.setLetterSpacings(if (config.lyricLetterSpacing == 0) {
-            source.letterSpacing
-        } else {
-            config.lyricLetterSpacing / 100f
-        })
-        target.setStrokeWidth(config.lyricStrokeWidth / 100f)
-        applyBackground(target, config.lyricBackgroundColor, config.lyricBackgroundRadius)
-        applyGradient(target)
+        target.setLetterSpacings(appearance.lyricLetterSpacingOverride ?: source.letterSpacing)
+        target.setStrokeWidth(appearance.lyricStrokeWidth)
+        applyBackground(target, appearance.lyricBackgroundColors, appearance.lyricBackgroundRadius)
+        applyGradient(target, appearance)
         applyTypeface(target, source.typeface)
     }
 
-    private fun applyBackground(target: LyricSwitchView, value: String, radius: Int) {
+    private fun applyBackground(target: LyricSwitchView, colors: List<Int>, radius: Int) {
         target.setBackgroundColor(Color.TRANSPARENT)
-        val colors = parseColorList(value)
         if (colors.isEmpty()) return
 
         target.background = if (colors.size == 1) {
@@ -790,10 +798,12 @@ class Api101SystemUIHook(
         }
     }
 
-    private fun applyGradient(target: LyricSwitchView) {
-        val colors = parseColorList(XposedOwnSP.config.lyricGradientColor)
+    private fun applyGradient(target: LyricSwitchView, appearance: RuntimeAppearanceSnapshot) {
+        val colors = appearance.lyricGradientColors
         if (colors.size < 2 || target.width <= 0) {
-            if (colors.size == 1) target.setTextColor(colors[0])
+            if (appearance.hasLyricGradient && colors.size == 1) {
+                target.setTextColor(colors[0])
+            }
             return
         }
         target.setLinearGradient(
@@ -810,12 +820,8 @@ class Api101SystemUIHook(
     }
 
     private fun applyTypeface(target: LyricSwitchView, fallback: Typeface) {
-        val customTypeface = runCatching {
-            File("${mountedParent?.context?.filesDir?.path}/font")
-                .takeIf { it.exists() && it.canRead() }
-                ?.let(Typeface::createFromFile)
-        }.getOrNull()
-        target.setTypeface(customTypeface ?: fallback)
+        val filesDir = mountedParent?.context?.filesDir ?: return target.setTypeface(fallback)
+        target.setTypeface(typefaceFileCache.resolve(File(filesDir, "font"), fallback))
     }
 
     private fun createLayoutParams(source: View): ViewGroup.LayoutParams {
@@ -830,70 +836,120 @@ class Api101SystemUIHook(
         )
         params.width = ViewGroup.LayoutParams.WRAP_CONTENT
         params.height = ViewGroup.LayoutParams.MATCH_PARENT
+        val appearance = currentAppearanceSnapshot()
         (params as? ViewGroup.MarginLayoutParams)?.setMargins(
-            XposedOwnSP.config.lyricStartMargins,
-            XposedOwnSP.config.lyricTopMargins,
-            XposedOwnSP.config.lyricEndMargins,
-            XposedOwnSP.config.lyricBottomMargins
+            appearance.lyricStartMargin,
+            appearance.lyricTopMargin,
+            appearance.lyricEndMargin,
+            appearance.lyricBottomMargin
         )
         return params
+    }
+
+    private fun updateMountedLayoutMargins(appearance: RuntimeAppearanceSnapshot) {
+        val layout = lyricLayout ?: return
+        val params = layout.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        if (
+            params.leftMargin == appearance.lyricStartMargin &&
+            params.topMargin == appearance.lyricTopMargin &&
+            params.rightMargin == appearance.lyricEndMargin &&
+            params.bottomMargin == appearance.lyricBottomMargin
+        ) {
+            return
+        }
+        params.setMargins(
+            appearance.lyricStartMargin,
+            appearance.lyricTopMargin,
+            appearance.lyricEndMargin,
+            appearance.lyricBottomMargin
+        )
+        layout.layoutParams = params
     }
 
     private fun applyConfiguration(source: TextView? = mountedTarget as? TextView) {
         val clock = source ?: return
         val lyric = lyricView ?: return
-        val config = XposedOwnSP.config
-        applyLyricAppearance(lyric, clock)
-        lyric.setScrollSpeed(config.lyricSpeed.toFloat())
-        lyric.inAnimation = LyricViewTools.switchViewInAnima(
-            if (config.lyricAnimation == 11) randomAnima else config.lyricAnimation,
-            config.lyricInterpolator,
-            config.animationDuration
+        val appearance = currentAppearanceSnapshot()
+        val key = AppliedAppearanceKey(
+            appearance = appearance,
+            sourceTextSize = clock.textSize,
+            sourceTextColor = clock.currentTextColor,
+            sourceLetterSpacing = clock.letterSpacing,
+            sourceTypefaceIdentity = System.identityHashCode(clock.typeface),
+            sourceHeight = clock.height,
+            mountedParentIdentity = System.identityHashCode(mountedParent)
         )
-        lyric.outAnimation = LyricViewTools.switchViewOutAnima(
-            config.lyricAnimation,
-            config.animationDuration
-        )
-        if (isHyperOS && config.mHyperOSTexture) {
-            runCatching {
-                lyricLayout?.setBackgroundBlur(
-                    config.mHyperOSTextureRadio,
-                    cornerRadius(config.mHyperOSTextureCorner.toFloat()),
-                    arrayOf(
-                        intArrayOf(106, parseColor(config.mHyperOSTextureBgColor) ?: Color.TRANSPARENT),
-                        intArrayOf(3, parseColor(config.mHyperOSTextureBgColor) ?: Color.TRANSPARENT)
+
+        if (appliedAppearanceKey != key) {
+            updateMountedLayoutMargins(appearance)
+            applyLyricAppearance(lyric, clock, appearance)
+            lyric.setScrollSpeed(appearance.lyricSpeed)
+            lyric.inAnimation = LyricViewTools.switchViewInAnima(
+                if (appearance.lyricAnimation == 11) randomAnima else appearance.lyricAnimation,
+                appearance.lyricInterpolator,
+                appearance.animationDurationMillis
+            )
+            lyric.outAnimation = LyricViewTools.switchViewOutAnima(
+                appearance.lyricAnimation,
+                appearance.animationDurationMillis
+            )
+            if (isHyperOS && appearance.hyperTextureEnabled) {
+                runCatching {
+                    lyricLayout?.setBackgroundBlur(
+                        appearance.hyperTextureRadius,
+                        cornerRadius(appearance.hyperTextureCorner.toFloat()),
+                        arrayOf(
+                            intArrayOf(106, appearance.hyperTextureBackgroundColor),
+                            intArrayOf(3, appearance.hyperTextureBackgroundColor)
+                        )
                     )
-                )
-            }.onFailure { throwable ->
-                module.log(android.util.Log.INFO, TAG, "API101 HyperOS texture unavailable", throwable)
+                }.onFailure { throwable ->
+                    module.log(android.util.Log.INFO, TAG, "API101 HyperOS texture unavailable", throwable)
+                }
             }
+
+            iconView?.apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.MATCH_PARENT
+                ).apply {
+                    setMargins(
+                        appearance.iconStartMargin,
+                        appearance.iconTopMargin,
+                        0,
+                        appearance.iconBottomMargin
+                    )
+                    val size = if (appearance.iconSizePx == 0) clock.height / 2 else appearance.iconSizePx
+                    width = size
+                    height = size
+                }
+                setColorFilter(
+                    appearance.iconColor ?: clock.currentTextColor,
+                    PorterDuff.Mode.SRC_IN
+                )
+                setBackgroundColor(appearance.iconBackgroundColor)
+            }
+            appliedAppearanceKey = key
         }
 
-        iconView?.apply {
-            if (!config.iconSwitch) {
-                visibility = View.GONE
-                return@apply
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
-            ).apply {
-                setMargins(
-                    config.iconStartMargins,
-                    config.iconTopMargins,
-                    0,
-                    config.iconBottomMargins
-                )
-                val size = if (config.iconSize == 0) clock.height / 2 else config.iconSize
-                width = size
-                height = size
-            }
-            setColorFilter(
-                parseColor(config.iconColor) ?: clock.currentTextColor,
-                PorterDuff.Mode.SRC_IN
-            )
-            setBackgroundColor(parseColor(config.iconBgColor) ?: Color.TRANSPARENT)
-            visibility = if (lastBase64Icon.isEmpty()) View.GONE else View.VISIBLE
+        iconView?.visibility = if (!appearance.iconEnabled || lastBase64Icon.isEmpty()) {
+            View.GONE
+        } else {
+            View.VISIBLE
+        }
+    }
+
+    private fun currentAppearanceSnapshot(): RuntimeAppearanceSnapshot {
+        return appearanceSnapshot ?: RuntimeAppearanceSnapshot.from(XposedOwnSP.config).also {
+            appearanceSnapshot = it
+        }
+    }
+
+    private fun refreshAppearanceSnapshot() {
+        val updated = RuntimeAppearanceSnapshot.from(XposedOwnSP.config)
+        if (appearanceSnapshot != updated) {
+            appearanceSnapshot = updated
+            appliedAppearanceKey = null
         }
     }
 
@@ -921,8 +977,8 @@ class Api101SystemUIHook(
                     (0.3f + (overflow.toFloat() / width) * (5f / (delay / 1000f))).coerceIn(0.3f, 5f)
                 }
 
-                XposedOwnSP.config.dynamicLyricSpeed -> 10f * overflow / width + 0.7f
-                else -> XposedOwnSP.config.lyricSpeed.toFloat()
+                currentAppearanceSnapshot().dynamicLyricSpeed -> 10f * overflow / width + 0.7f
+                else -> currentAppearanceSnapshot().lyricSpeed
             }
             lyricDisplay.setScrollSpeed(speed)
         }
@@ -977,16 +1033,16 @@ class Api101SystemUIHook(
     }
 
     private fun getLyricWidth(textWidth: Int, parent: ViewGroup): Int {
+        val appearance = currentAppearanceSnapshot()
         val availableWidth = max(
-            parent.width - XposedOwnSP.config.lyricStartMargins - XposedOwnSP.config.lyricEndMargins,
+            parent.width - appearance.lyricStartMargin - appearance.lyricEndMargin,
             0
         )
-        val configuredWidth = XposedOwnSP.config.lyricWidth
-        if (configuredWidth == 0) return min(textWidth, availableWidth)
+        if (appearance.lyricWidthPercent == 0) return min(textWidth, availableWidth)
         val display = parent.resources.displayMetrics
         val scaleBase = max(display.widthPixels, display.heightPixels)
-        val scaledWidth = (configuredWidth / 100f * scaleBase).toInt()
-        return if (XposedOwnSP.config.fixedLyricWidth) scaledWidth else min(textWidth, scaledWidth)
+        val scaledWidth = (appearance.lyricWidthPercent / 100f * scaleBase).toInt()
+        return if (appearance.fixedLyricWidth) scaledWidth else min(textWidth, scaledWidth)
     }
 
     private fun refreshTimeoutRestore() {
@@ -1054,21 +1110,6 @@ class Api101SystemUIHook(
         }
     }
 
-    private fun parseColor(value: String): Int? {
-        val normalized = value.trim()
-        if (normalized.isEmpty()) return null
-        return runCatching { Color.parseColor(normalized) }.getOrNull()
-    }
-
-    private fun parseColorList(value: String): List<Int> {
-        val tokens = value.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-        if (tokens.isEmpty()) return emptyList()
-        return runCatching { tokens.map { Color.parseColor(it) } }.getOrElse { throwable ->
-            module.log(android.util.Log.WARN, TAG, "API101 background color ignored: $value", throwable)
-            emptyList()
-        }
-    }
-
     private fun onClockVisibilityRequested(view: View?, requestedVisibility: Int): Boolean {
         observeSystemIconsVisibility(view, requestedVisibility)
         return visibilityOverrides.onVisibilityRequested(
@@ -1082,13 +1123,13 @@ class Api101SystemUIHook(
         val tint = findIntField(dispatcher, "mIconTint") ?: return
         mainHandler.post {
             runCatching {
-                val config = XposedOwnSP.config
+                val appearance = currentAppearanceSnapshot()
                 lyricDisplayState.updateDynamicTint(
                     lyricView = lyricView,
                     tint = tint,
-                    useDynamicColor = config.lyricColor.isEmpty() && config.lyricGradientColor.isEmpty()
+                    useDynamicColor = appearance.usesDynamicLyricColor
                 )
-                if (config.iconColor.isEmpty()) {
+                if (appearance.iconColor == null) {
                     iconView?.setColorFilter(tint, PorterDuff.Mode.SRC_IN)
                 }
             }.onFailure { throwable ->
@@ -1104,6 +1145,16 @@ class Api101SystemUIHook(
     private fun findIntField(instance: Any?, name: String): Int? {
         return instance?.let { getIntFieldValue(it, name) }
     }
+
+    private data class AppliedAppearanceKey(
+        val appearance: RuntimeAppearanceSnapshot,
+        val sourceTextSize: Float,
+        val sourceTextColor: Int,
+        val sourceLetterSpacing: Float,
+        val sourceTypefaceIdentity: Int,
+        val sourceHeight: Int,
+        val mountedParentIdentity: Int
+    )
 
     private class TargetViewHooker(
         private val owner: Api101SystemUIHook
