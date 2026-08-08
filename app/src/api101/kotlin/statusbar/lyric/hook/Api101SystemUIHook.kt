@@ -891,21 +891,9 @@ class Api101SystemUIHook(
         if (XposedOwnSP.config.mMiuiHideNetworkSpeed) miuiNetworkSpeedView?.visibility = View.GONE
         if (XposedOwnSP.config.hideCarrier) miuiCarrierLabel?.visibility = View.GONE
 
-        val width = getLyricWidth(lyric, parent)
+        val measuredTextWidth = lyricDisplay.measureText(lyric).toInt()
+        val width = getLyricWidth(measuredTextWidth, parent)
         lyricDisplay.setWidth(width)
-        val measuredTextWidth = TextView(parent.context).apply {
-            setTextSize(
-                TypedValue.COMPLEX_UNIT_PX,
-                if (XposedOwnSP.config.lyricSize == 0) {
-                    (mountedTarget as? TextView)?.textSize ?: 0f
-                } else {
-                    XposedOwnSP.config.lyricSize.toFloat()
-                }
-            )
-            typeface = (mountedTarget as? TextView)?.typeface
-            letterSpacing = XposedOwnSP.config.lyricLetterSpacing / 100f
-            paint.strokeWidth = XposedOwnSP.config.lyricStrokeWidth / 100f
-        }.paint.measureText(lyric).toInt()
         val overflow = measuredTextWidth - width
         if (overflow > 0 && width > 0) {
             val speed = when {
@@ -941,18 +929,7 @@ class Api101SystemUIHook(
         miuiCarrierLabel?.visibility = View.VISIBLE
     }
 
-    private fun getLyricWidth(lyric: String, parent: ViewGroup): Int {
-        val source = mountedTarget as? TextView ?: return ViewGroup.LayoutParams.WRAP_CONTENT
-        val measure = TextView(parent.context).apply {
-            setTextSize(
-                TypedValue.COMPLEX_UNIT_PX,
-                if (XposedOwnSP.config.lyricSize == 0) source.textSize else XposedOwnSP.config.lyricSize.toFloat()
-            )
-            typeface = source.typeface
-            letterSpacing = XposedOwnSP.config.lyricLetterSpacing / 100f
-            paint.strokeWidth = XposedOwnSP.config.lyricStrokeWidth / 100f
-        }
-        val textWidth = measure.paint.measureText(lyric).toInt()
+    private fun getLyricWidth(textWidth: Int, parent: ViewGroup): Int {
         val availableWidth = max(
             parent.width - XposedOwnSP.config.lyricStartMargins - XposedOwnSP.config.lyricEndMargins,
             0

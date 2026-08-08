@@ -80,6 +80,12 @@ open class LyricSwitchView(context: Context) : TextSwitcher(context) {
         applyToAllViews { it.setScrollSpeed(speed) }
     }
 
+    fun measureText(text: String): Float {
+        val textView = currentView as? LyricTextView
+            ?: (if (childCount > 0) getChildAt(0) as? LyricTextView else null)
+        return textView?.paint?.measureText(text) ?: 0f
+    }
+
     fun stopAllScroll() {
         applyToAllViews { it.stopScrollNow() }
     }
