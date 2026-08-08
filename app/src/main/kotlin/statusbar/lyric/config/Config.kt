@@ -29,6 +29,9 @@ import statusbar.lyric.tools.ConfigTools
 class Config {
     companion object {
         const val CONFIG_NAME = "COMPOSE_CONFIG"
+        const val DEFAULT_TIMEOUT_RESTORE_SECONDS = 10
+        const val MIN_TIMEOUT_RESTORE_SECONDS = 10
+        const val MAX_TIMEOUT_RESTORE_SECONDS = 60
     }
 
     var config: ConfigStore
@@ -270,6 +273,17 @@ class Config {
         }
         set(value) {
             config.put("timeoutRestore", value)
+        }
+    var timeoutRestoreSeconds: Int
+        get() {
+            return config.opt("timeoutRestoreSeconds", DEFAULT_TIMEOUT_RESTORE_SECONDS)
+                .coerceIn(MIN_TIMEOUT_RESTORE_SECONDS, MAX_TIMEOUT_RESTORE_SECONDS)
+        }
+        set(value) {
+            config.put(
+                "timeoutRestoreSeconds",
+                value.coerceIn(MIN_TIMEOUT_RESTORE_SECONDS, MAX_TIMEOUT_RESTORE_SECONDS)
+            )
         }
     var longClickStatusBarStop: Boolean
         get() {

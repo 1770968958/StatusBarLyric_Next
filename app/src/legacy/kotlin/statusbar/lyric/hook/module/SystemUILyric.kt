@@ -641,7 +641,11 @@ class SystemUILyric : BaseHook() {
         if (handler.hasMessages(timeoutRestore)) {
             handler.removeMessages(timeoutRestore)
         }
-        handler.sendEmptyMessageDelayed(timeoutRestore, 10000L)
+        if (!config.timeoutRestore) return
+        handler.sendEmptyMessageDelayed(
+            timeoutRestore,
+            config.timeoutRestoreSeconds * 1000L
+        )
     }
 
     private fun resolveIconBase64(data: SuperLyricData, publisher: String): String {
@@ -982,6 +986,11 @@ class SystemUILyric : BaseHook() {
                         setBackgroundColor(config.iconBgColor.toColorInt())
                     }
                 }
+            }
+            if (isMusicPlaying && lastLyric.isNotEmpty()) {
+                refreshTimeoutRestore()
+            } else if (handler.hasMessages(timeoutRestore)) {
+                handler.removeMessages(timeoutRestore)
             }
         }
     }

@@ -223,6 +223,7 @@ class Api101SystemUIHook(
                     applyConfiguration()
                     if (isMusicPlaying && pendingLyric.isNotEmpty()) {
                         showLyric(pendingLyric, pendingDelay)
+                        refreshTimeoutRestore()
                     }
                 }.onFailure { throwable ->
                     module.log(android.util.Log.WARN, TAG, "API101 config update failed", throwable)
@@ -241,6 +242,7 @@ class Api101SystemUIHook(
                         applyConfiguration()
                         if (isMusicPlaying && pendingLyric.isNotEmpty()) {
                             showLyric(pendingLyric, pendingDelay)
+                            refreshTimeoutRestore()
                         }
                     }.onFailure { throwable ->
                         module.log(android.util.Log.WARN, TAG, "API101 configuration broadcast failed", throwable)
@@ -992,7 +994,12 @@ class Api101SystemUIHook(
                 pendingDelay = 0
                 hideLyric()
             }
-        }.also { mainHandler.postDelayed(it, LYRIC_TIMEOUT_MILLIS) }
+        }.also {
+            mainHandler.postDelayed(
+                it,
+                XposedOwnSP.config.timeoutRestoreSeconds * 1000L
+            )
+        }
     }
 
     private fun showTitle(title: String, lyric: String) {
@@ -1311,7 +1318,6 @@ class Api101SystemUIHook(
         const val MIUI_NOTIFICATION_CALLBACK_CLASS = "com.android.systemui.controlcenter.shade.NotificationHeaderExpandController\$notificationCallback\$1"
         const val FOCUSED_NOTIFICATION_CONTROLLER_CLASS = "com.android.systemui.statusbar.phone.FocusedNotifPromptController"
         const val TITLE_DELAY_MILLIS = 800L
-        const val LYRIC_TIMEOUT_MILLIS = 10_000L
         const val MAX_ICON_BASE64_CHARS = 700_000
         const val MAX_ICON_BYTES = 524_288
         const val LONG_CLICK_MILLIS = 500L

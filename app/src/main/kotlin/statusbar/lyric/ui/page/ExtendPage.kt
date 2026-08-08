@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableIntState
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +63,7 @@ import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import statusbar.lyric.R
 import statusbar.lyric.config.ActivityOwnSP.config
+import statusbar.lyric.config.Config
 import statusbar.lyric.tools.ActivityTools
 import statusbar.lyric.tools.Tools.isNotNull
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -107,6 +109,7 @@ fun ExtendPage(
     val slideStatusBarCutSongs = remember { mutableStateOf(config.slideStatusBarCutSongs) }
     val limitVisibilityChange = remember { mutableStateOf(config.limitVisibilityChange) }
     val timeoutRestore = remember { mutableStateOf(config.timeoutRestore) }
+    val timeoutRestoreSeconds = remember { mutableIntStateOf(config.timeoutRestoreSeconds) }
     val dynamicLyricSpeed = remember { mutableStateOf(config.dynamicLyricSpeed) }
     val titleSwitch = remember { mutableStateOf(config.titleSwitch) }
     val titleShowWithSameLyric = remember { mutableStateOf(config.titleShowWithSameLyric) }
@@ -119,6 +122,7 @@ fun ExtendPage(
     val showDialog = remember { mutableStateOf(false) }
     val showCutSongsXRadiusDialog = remember { mutableStateOf(false) }
     val showCutSongsYRadiusDialog = remember { mutableStateOf(false) }
+    val showTimeoutRestoreSecondsDialog = remember { mutableStateOf(false) }
     val showTitleDelayDialog = remember { mutableStateOf(false) }
     val showTitleBgColorDialog = remember { mutableStateOf(false) }
     val showTitleRadiusDialog = remember { mutableStateOf(false) }
@@ -291,6 +295,19 @@ fun ExtendPage(
                                 config.timeoutRestore = it
                             }
                         )
+                        AnimatedVisibility(timeoutRestore.value) {
+                            SuperArrow(
+                                title = stringResource(R.string.timeout_restore_seconds),
+                                rightText = stringResource(
+                                    R.string.timeout_restore_seconds_value,
+                                    timeoutRestoreSeconds.intValue
+                                ),
+                                onClick = {
+                                    showTimeoutRestoreSecondsDialog.value = true
+                                },
+                                holdDownState = showTimeoutRestoreSecondsDialog.value
+                            )
+                        }
                         SuperSwitch(
                             title = stringResource(R.string.dynamic_lyric_speed),
                             checked = dynamicLyricSpeed.value,
@@ -404,6 +421,7 @@ fun ExtendPage(
     RestartDialog(showDialog)
     CutSongsXRadiusDialog(showCutSongsXRadiusDialog)
     CutSongsYRadiusDialog(showCutSongsYRadiusDialog)
+    TimeoutRestoreSecondsDialog(showTimeoutRestoreSecondsDialog, timeoutRestoreSeconds)
     TitleDelayDialog(showTitleDelayDialog)
     TitleBgColorDialog(showTitleBgColorDialog)
     TitleRadiusDialog(showTitleRadiusDialog)
@@ -434,6 +452,25 @@ fun CutSongsYRadiusDialog(showDialog: MutableState<Boolean>) {
         validRange = 0..100,
         fallbackValue = { 10 },
         onValueChange = { config.slideStatusBarCutSongsYRadius = it }
+    )
+}
+
+@Composable
+fun TimeoutRestoreSecondsDialog(
+    showDialog: MutableState<Boolean>,
+    timeoutRestoreSeconds: MutableIntState
+) {
+    IntSettingDialog(
+        showDialog = showDialog,
+        title = stringResource(R.string.timeout_restore_seconds),
+        summary = stringResource(R.string.timeout_restore_seconds_tips),
+        initialValue = timeoutRestoreSeconds.intValue,
+        validRange = Config.MIN_TIMEOUT_RESTORE_SECONDS..Config.MAX_TIMEOUT_RESTORE_SECONDS,
+        fallbackValue = { Config.DEFAULT_TIMEOUT_RESTORE_SECONDS },
+        onValueChange = {
+            timeoutRestoreSeconds.intValue = it
+            config.timeoutRestoreSeconds = it
+        }
     )
 }
 
