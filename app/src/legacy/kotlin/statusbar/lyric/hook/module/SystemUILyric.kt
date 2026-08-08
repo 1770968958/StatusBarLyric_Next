@@ -87,6 +87,7 @@ import statusbar.lyric.tools.Tools.isNotNull
 import statusbar.lyric.runtime.InternalBroadcasts
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
+import statusbar.lyric.runtime.ViewVisibilityOverrideState
 import statusbar.lyric.runtime.icon.IconBitmapDecoder
 import statusbar.lyric.runtime.input.MediaKeyDispatcher
 import statusbar.lyric.tools.Tools.observableChange
@@ -232,6 +233,7 @@ class SystemUILyric : BaseHook() {
     private var notificationIconArea: View? = null
     private var statusBatteryContainer: View? = null
     private val targetViewMatcher = TargetViewMatcher()
+    private val visibilityOverrides = ViewVisibilityOverrideState()
     private val mediaKeyDispatcher by lazy { MediaKeyDispatcher(context) }
     private val observedTargetViews = Collections.newSetFromMap(WeakHashMap<TextView, Boolean>())
     private val targetAttachStateListener = object : View.OnAttachStateChangeListener {
@@ -270,16 +272,13 @@ class SystemUILyric : BaseHook() {
                 .createHook {
                     before { param ->
                         val view = param.thisObject as View
-                        if (config.limitVisibilityChange && isMusicPlaying && !isHiding && param.args[0] == View.VISIBLE) {
-                            if (
-                                (isReady && clockView == view && config.hideTime) ||
-                                (notificationIconArea == view && config.hideNotificationIcon) ||
-                                (XiaomiHooks.getCarrierLabel() == view && config.hideCarrier) ||
-                                (XiaomiHooks.getMiuiNetworkSpeedView() == view && config.mMiuiHideNetworkSpeed) ||
-                                (XiaomiHooks.getPadClockView() == view && config.hideTime)
-                            ) {
-                                param.args[0] = View.GONE
-                            }
+                        val requestedVisibility = param.args[0] as? Int ?: return@before
+                        visibilityOverrides.onVisibilityRequested(
+                            view = view,
+                            requestedVisibility = requestedVisibility,
+                            keepHiddenOverride = config.limitVisibilityChange && isMusicPlaying && !isHiding
+                        )?.let { forcedVisibility ->
+                            param.args[0] = forcedVisibility
                         }
 
                         if (statusBatteryContainer.isNotNull()) {
@@ -569,6 +568,7 @@ class SystemUILyric : BaseHook() {
 
     private fun onTargetViewDetached(view: View) {
         targetViewMatcher.forget(view, view.parent as? ViewGroup)
+        visibilityOverrides.forget(view)
         if (!isReady || clockView !== view) return
         "Running onDetachedFromWindow".log()
         canLoad = true
@@ -583,6 +583,10 @@ class SystemUILyric : BaseHook() {
         expectedTextSizePx = config.textSize,
         targetIndex = config.index
     )
+
+    fun applyVisibilityOverride(view: View?, visibility: Int) {
+        visibilityOverrides.apply(view, visibility)
+    }
 
     private fun canShowLyric(): Boolean {
         return isMusicPlaying && !FocusNotifyController.isOS1FocusNotifyShowing && !FocusNotifyController.isInteraction
@@ -802,13 +806,7 @@ class SystemUILyric : BaseHook() {
             lastColor = clockView.currentTextColor
             lyricLayout.cancelAnimation()
             lyricLayout.showView()
-            if (config.hideTime) {
-                clockView.hideView()
-                XiaomiHooks.getPadClockView()?.hideView()
-            }
-            if (config.hideNotificationIcon) notificationIconArea?.hideView()
-            XiaomiHooks.getMiuiNetworkSpeedView()?.hideView()
-            XiaomiHooks.getCarrierLabel()?.hideView()
+            syncSystemUiVisibilityOverrides()
 
             lyricView.apply {
                 val lyricWidth = getLyricWidth(lyric)
@@ -847,6 +845,35 @@ class SystemUILyric : BaseHook() {
         }
     }
 
+    private fun syncSystemUiVisibilityOverrides() {
+        if (config.hideTime) {
+            visibilityOverrides.apply(clockView, View.GONE)
+            visibilityOverrides.apply(XiaomiHooks.getPadClockView(), View.GONE)
+        } else {
+            visibilityOverrides.restore(clockView)
+            visibilityOverrides.restore(XiaomiHooks.getPadClockView())
+            visibilityOverrides.restore(XiaomiHooks.getNotificationBigTime())
+        }
+
+        if (config.hideNotificationIcon) {
+            visibilityOverrides.apply(notificationIconArea, View.GONE)
+        } else {
+            visibilityOverrides.restore(notificationIconArea)
+        }
+
+        if (config.mMiuiHideNetworkSpeed) {
+            visibilityOverrides.apply(XiaomiHooks.getMiuiNetworkSpeedView(), View.GONE)
+        } else {
+            visibilityOverrides.restore(XiaomiHooks.getMiuiNetworkSpeedView())
+        }
+
+        if (config.hideCarrier) {
+            visibilityOverrides.apply(XiaomiHooks.getCarrierLabel(), View.GONE)
+        } else {
+            visibilityOverrides.restore(XiaomiHooks.getCarrierLabel())
+        }
+    }
+
     private fun parseColorList(value: String): List<Int> {
         return runCatching {
             value.split(",")
@@ -875,13 +902,8 @@ class SystemUILyric : BaseHook() {
             lyricLayout.hideView(false)
             lyricView.stopAllScroll()
             lyricView.setText("")
-            clockView.showView()
             if (config.titleSwitch) titleDialog.hideTitle()
-            notificationIconArea?.showView()
-            XiaomiHooks.getPadClockView()?.showView()
-            XiaomiHooks.getCarrierLabel()?.showView()
-            XiaomiHooks.getMiuiNetworkSpeedView()?.showView()
-            XiaomiHooks.getNotificationBigTime()?.visibility = View.VISIBLE
+            visibilityOverrides.restoreAll()
         }
     }
 
@@ -988,6 +1010,9 @@ class SystemUILyric : BaseHook() {
                         setBackgroundColor(config.iconBgColor.toColorInt())
                     }
                 }
+            }
+            if (isMusicPlaying && !isHiding) {
+                syncSystemUiVisibilityOverrides()
             }
             if (isMusicPlaying && lastLyric.isNotEmpty()) {
                 refreshTimeoutRestore()

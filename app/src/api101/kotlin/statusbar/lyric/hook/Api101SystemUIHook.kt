@@ -54,6 +54,7 @@ import statusbar.lyric.reflection.ReflectionUtils.callWithArgs
 import statusbar.lyric.reflection.ReflectionUtils.findMethod
 import statusbar.lyric.reflection.ReflectionUtils.findMethodByName
 import statusbar.lyric.runtime.TargetViewMatcher
+import statusbar.lyric.runtime.ViewVisibilityOverrideState
 import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.icon.IconBitmapDecoder
 import statusbar.lyric.runtime.input.MediaKeyDispatcher
@@ -96,7 +97,8 @@ class Api101SystemUIHook(
     private val xiaomiHooksInstalled = AtomicBoolean(false)
     private val focusNotificationHookInstalled = AtomicBoolean(false)
     private val systemUiTest = Api101SystemUITest(module)
-    private val lyricDisplayState = Api101LyricDisplayState()
+    private val visibilityOverrides = ViewVisibilityOverrideState()
+    private val lyricDisplayState = Api101LyricDisplayState(visibilityOverrides)
     private val targetViewMatcher = TargetViewMatcher()
     private var mediaKeyDispatcher: MediaKeyDispatcher? = null
     private val iconDecodeGeneration = AtomicLong(0L)
@@ -120,7 +122,6 @@ class Api101SystemUIHook(
     private var systemIconsContainer: View? = null
     private var miuiNetworkSpeedView: View? = null
     private var miuiPadClockView: View? = null
-    private var miuiPadClockHiddenForLyric = false
     private var miuiCarrierLabel: View? = null
     private var miuiNotificationBigTime: View? = null
     private var focusedNotificationController: Any? = null
@@ -881,18 +882,7 @@ class Api101SystemUIHook(
         layout.cancelAnimation()
         layout.visibility = View.VISIBLE
         lyricShowing = true
-        if (XposedOwnSP.config.hideNotificationIcon) {
-            notificationIconArea?.visibility = View.GONE
-        }
-        if (XposedOwnSP.config.hideTime) {
-            if (XposedOwnSP.config.mMiuiPadOptimize) {
-                miuiPadClockHiddenForLyric = miuiPadClockView != null
-                miuiPadClockView?.visibility = View.GONE
-            }
-            miuiNotificationBigTime?.visibility = View.GONE
-        }
-        if (XposedOwnSP.config.mMiuiHideNetworkSpeed) miuiNetworkSpeedView?.visibility = View.GONE
-        if (XposedOwnSP.config.hideCarrier) miuiCarrierLabel?.visibility = View.GONE
+        syncSystemUiVisibilityOverrides()
 
         val measuredTextWidth = lyricDisplay.measureText(lyric).toInt()
         val width = getLyricWidth(measuredTextWidth, parent)
@@ -923,14 +913,40 @@ class Api101SystemUIHook(
             setText("")
         }
         titleDialog?.hideTitle()
-        notificationIconArea?.visibility = View.VISIBLE
-        if (miuiPadClockHiddenForLyric) {
-            miuiPadClockHiddenForLyric = false
-            miuiPadClockView?.visibility = View.VISIBLE
+        visibilityOverrides.restoreAll()
+    }
+
+    private fun syncSystemUiVisibilityOverrides() {
+        val config = XposedOwnSP.config
+        if (config.hideNotificationIcon) {
+            visibilityOverrides.apply(notificationIconArea, View.GONE)
+        } else {
+            visibilityOverrides.restore(notificationIconArea)
         }
-        miuiNotificationBigTime?.visibility = View.VISIBLE
-        miuiNetworkSpeedView?.visibility = View.VISIBLE
-        miuiCarrierLabel?.visibility = View.VISIBLE
+
+        if (config.hideTime) {
+            if (config.mMiuiPadOptimize) {
+                visibilityOverrides.apply(miuiPadClockView, View.GONE)
+            } else {
+                visibilityOverrides.restore(miuiPadClockView)
+            }
+            visibilityOverrides.apply(miuiNotificationBigTime, View.GONE)
+        } else {
+            visibilityOverrides.restore(miuiPadClockView)
+            visibilityOverrides.restore(miuiNotificationBigTime)
+        }
+
+        if (config.mMiuiHideNetworkSpeed) {
+            visibilityOverrides.apply(miuiNetworkSpeedView, View.GONE)
+        } else {
+            visibilityOverrides.restore(miuiNetworkSpeedView)
+        }
+
+        if (config.hideCarrier) {
+            visibilityOverrides.apply(miuiCarrierLabel, View.GONE)
+        } else {
+            visibilityOverrides.restore(miuiCarrierLabel)
+        }
     }
 
     private fun getLyricWidth(textWidth: Int, parent: ViewGroup): Int {
@@ -1028,23 +1044,11 @@ class Api101SystemUIHook(
 
     private fun onClockVisibilityRequested(view: View?, requestedVisibility: Int): Boolean {
         observeSystemIconsVisibility(view, requestedVisibility)
-        if (lyricDisplayState.shouldKeepClockHidden(
+        return visibilityOverrides.onVisibilityRequested(
             view = view,
             requestedVisibility = requestedVisibility,
-            hideTime = XposedOwnSP.config.hideTime,
-            limitVisibilityChange = XposedOwnSP.config.limitVisibilityChange
-        )) {
-            return true
-        }
-        return XposedOwnSP.config.limitVisibilityChange &&
-            lyricShowing &&
-            requestedVisibility == View.VISIBLE &&
-            ((XposedOwnSP.config.hideNotificationIcon && notificationIconArea === view) ||
-                (XposedOwnSP.config.hideTime &&
-                    (miuiNotificationBigTime === view ||
-                        (XposedOwnSP.config.mMiuiPadOptimize && miuiPadClockView === view))) ||
-                (XposedOwnSP.config.mMiuiHideNetworkSpeed && miuiNetworkSpeedView === view) ||
-                (XposedOwnSP.config.hideCarrier && miuiCarrierLabel === view))
+            keepHiddenOverride = XposedOwnSP.config.limitVisibilityChange && lyricShowing
+        ) == View.GONE
     }
 
     private fun onDarkIntensityApplied(dispatcher: Any?) {

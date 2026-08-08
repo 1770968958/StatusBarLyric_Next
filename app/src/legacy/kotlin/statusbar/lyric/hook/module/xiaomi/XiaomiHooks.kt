@@ -94,8 +94,10 @@ class XiaomiHooks {
                             setNotificationBigTime(bigTimeView)
 
                             val f = hook.args[0] as Float
-                            if (f < 0.75f) getNotificationBigTime()?.visibility = View.GONE
-                            else getNotificationBigTime()?.visibility = View.VISIBLE
+                            systemUILyric.applyVisibilityOverride(
+                                getNotificationBigTime(),
+                                if (f < 0.75f) View.GONE else View.VISIBLE
+                            )
                         }
                     }
                 }

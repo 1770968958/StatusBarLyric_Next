@@ -24,16 +24,18 @@ package statusbar.lyric.hook
 
 import android.view.View
 import android.widget.TextView
+import statusbar.lyric.runtime.ViewVisibilityOverrideState
 import statusbar.lyric.view.LyricSwitchView
 
 /**
  * Keeps the API 101 lyric and matched clock visibility state together so
  * visibility interception never applies to unrelated SystemUI views.
  */
-class Api101LyricDisplayState {
+class Api101LyricDisplayState(
+    private val visibilityOverrides: ViewVisibilityOverrideState
+) {
     private var matchedClock: TextView? = null
     private var lyricShowing = false
-    private var clockHiddenForLyric = false
     private var lastDynamicTint: Int? = null
 
     @Synchronized
@@ -47,8 +49,8 @@ class Api101LyricDisplayState {
     @Synchronized
     fun unbindClock(clock: View) {
         if (matchedClock !== clock) return
+        visibilityOverrides.forget(clock)
         matchedClock = null
-        clockHiddenForLyric = false
     }
 
     @Synchronized
@@ -59,20 +61,6 @@ class Api101LyricDisplayState {
         } else {
             restoreClock()
         }
-    }
-
-    @Synchronized
-    fun shouldKeepClockHidden(
-        view: View?,
-        requestedVisibility: Int,
-        hideTime: Boolean,
-        limitVisibilityChange: Boolean
-    ): Boolean {
-        return limitVisibilityChange &&
-            hideTime &&
-            lyricShowing &&
-            matchedClock === view &&
-            requestedVisibility == View.VISIBLE
     }
 
     @Synchronized
@@ -89,16 +77,10 @@ class Api101LyricDisplayState {
     }
 
     private fun hideClock() {
-        val clock = matchedClock ?: return
-        clockHiddenForLyric = true
-        if (clock.visibility != View.GONE) {
-            clock.visibility = View.GONE
-        }
+        visibilityOverrides.apply(matchedClock, View.GONE)
     }
 
     private fun restoreClock() {
-        if (!clockHiddenForLyric) return
-        clockHiddenForLyric = false
-        matchedClock?.visibility = View.VISIBLE
+        visibilityOverrides.restore(matchedClock)
     }
 }
