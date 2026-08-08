@@ -95,6 +95,8 @@ import statusbar.lyric.tools.XiaomiUtils.isHyperOS
 import statusbar.lyric.view.LyricSwitchView
 import statusbar.lyric.view.TitleDialog
 import java.io.File
+import java.util.Collections
+import java.util.WeakHashMap
 import kotlin.math.abs
 import kotlin.math.min
 
@@ -235,6 +237,16 @@ class SystemUILyric : BaseHook() {
     private var notificationIconArea: View? = null
     private var statusBatteryContainer: View? = null
     private val targetViewMatcher = TargetViewMatcher()
+    private val observedTargetViews = Collections.newSetFromMap(WeakHashMap<TextView, Boolean>())
+    private val targetAttachStateListener = object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(view: View) {
+            (view as? TextView)?.let(::onTargetViewAttached)
+        }
+
+        override fun onViewDetachedFromWindow(view: View) {
+            onTargetViewDetached(view)
+        }
+    }
 
     @SuppressLint("DiscouragedApi", "NewApi")
     override fun init() {
@@ -248,33 +260,15 @@ class SystemUILyric : BaseHook() {
             }
         }
 
-        loadClassOrNull(config.textViewClassName).isNotNull {
-            TextView::class.java.methodFinder().filterByName("onLayout").single()
-                .createHook {
+        loadClassOrNull(config.textViewClassName).isNotNull { targetClass ->
+            targetClass.declaredConstructors.forEach { constructor ->
+                constructor.createHook {
                     after { hookParam ->
-                        if (!canLoad) return@after
-
                         val view = hookParam.thisObject as? TextView ?: return@after
-                        val match = targetViewMatcher.match(view, currentTargetViewSpec()) ?: return@after
-                        val parent = match.parent as? LinearLayout ?: return@after
-                        clockView = view
-                        targetView = parent.apply { gravity = Gravity.CENTER }
-                        canLoad = false
-                        lyricInit()
+                        observeTargetView(view)
                     }
                 }
-
-            View::class.java.methodFinder().filterByName("onDetachedFromWindow").single()
-                .createHook {
-                    after { hookParam ->
-                        val view = hookParam.thisObject as? View ?: return@after
-                        targetViewMatcher.forget(view, view.parent as? ViewGroup)
-                        if (!isReady || clockView !== view) return@after
-                        "Running onDetachedFromWindow".log()
-                        canLoad = true
-                        updateLyricState(showLyric = false, showFocus = false)
-                    }
-                }
+            }
 
             View::class.java.methodFinder().filterByName("setVisibility").single()
                 .createHook {
@@ -556,6 +550,33 @@ class SystemUILyric : BaseHook() {
                     FocusNotifyController.showFocusNotifyIfNeed()
             }
         }
+    }
+
+    private fun observeTargetView(view: TextView) {
+        val added = synchronized(observedTargetViews) { observedTargetViews.add(view) }
+        if (!added) return
+        view.addOnAttachStateChangeListener(targetAttachStateListener)
+        if (view.isAttachedToWindow) {
+            onTargetViewAttached(view)
+        }
+    }
+
+    private fun onTargetViewAttached(view: TextView) {
+        if (!canLoad) return
+        val match = targetViewMatcher.match(view, currentTargetViewSpec()) ?: return
+        val parent = match.parent as? LinearLayout ?: return
+        clockView = view
+        targetView = parent.apply { gravity = Gravity.CENTER }
+        canLoad = false
+        lyricInit()
+    }
+
+    private fun onTargetViewDetached(view: View) {
+        targetViewMatcher.forget(view, view.parent as? ViewGroup)
+        if (!isReady || clockView !== view) return
+        "Running onDetachedFromWindow".log()
+        canLoad = true
+        updateLyricState(showLyric = false, showFocus = false)
     }
 
     private fun currentTargetViewSpec() = TargetViewSpec(
