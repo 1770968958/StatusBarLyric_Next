@@ -24,21 +24,24 @@ package statusbar.lyric.hook
 
 import android.view.View
 import android.widget.TextView
+import statusbar.lyric.runtime.ViewVisibilityOverrideState
 import statusbar.lyric.view.LyricSwitchView
+import java.lang.ref.WeakReference
 
 /**
- * Keeps the API 101 lyric and matched clock visibility state together so
- * visibility interception never applies to unrelated SystemUI views.
+ * 集中保存 API101 歌词与目标时钟的可见性状态，避免可见性拦截误作用到无关的 SystemUI View。
  */
-class Api101LyricDisplayState {
-    private var matchedClock: TextView? = null
+class Api101LyricDisplayState(
+    private val visibilityOverrides: ViewVisibilityOverrideState
+) {
+    private var matchedClockRef: WeakReference<TextView>? = null
+    private val matchedClock: TextView? get() = matchedClockRef?.get()
     private var lyricShowing = false
-    private var clockHiddenForLyric = false
     private var lastDynamicTint: Int? = null
 
     @Synchronized
     fun bindClock(clock: TextView, hideTime: Boolean) {
-        matchedClock = clock
+        matchedClockRef = WeakReference(clock)
         if (lyricShowing && hideTime) {
             hideClock()
         }
@@ -47,8 +50,8 @@ class Api101LyricDisplayState {
     @Synchronized
     fun unbindClock(clock: View) {
         if (matchedClock !== clock) return
-        matchedClock = null
-        clockHiddenForLyric = false
+        visibilityOverrides.forget(clock)
+        matchedClockRef = null
     }
 
     @Synchronized
@@ -59,20 +62,6 @@ class Api101LyricDisplayState {
         } else {
             restoreClock()
         }
-    }
-
-    @Synchronized
-    fun shouldKeepClockHidden(
-        view: View?,
-        requestedVisibility: Int,
-        hideTime: Boolean,
-        limitVisibilityChange: Boolean
-    ): Boolean {
-        return limitVisibilityChange &&
-            hideTime &&
-            lyricShowing &&
-            matchedClock === view &&
-            requestedVisibility == View.VISIBLE
     }
 
     @Synchronized
@@ -89,16 +78,10 @@ class Api101LyricDisplayState {
     }
 
     private fun hideClock() {
-        val clock = matchedClock ?: return
-        clockHiddenForLyric = true
-        if (clock.visibility != View.GONE) {
-            clock.visibility = View.GONE
-        }
+        visibilityOverrides.apply(matchedClock, View.GONE)
     }
 
     private fun restoreClock() {
-        if (!clockHiddenForLyric) return
-        clockHiddenForLyric = false
-        matchedClock?.visibility = View.VISIBLE
+        visibilityOverrides.restore(matchedClock)
     }
 }

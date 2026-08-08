@@ -26,21 +26,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.graphics.LinearGradient
-import android.graphics.PointF
 import android.graphics.PorterDuff
-import android.graphics.Shader
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
-import android.util.TypedValue
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -53,6 +43,30 @@ import com.hchen.superlyricapi.SuperLyricHelper
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import statusbar.lyric.config.XposedOwnSP
+import statusbar.lyric.reflection.ReflectionUtils.callNoArg
+import statusbar.lyric.reflection.ReflectionUtils.callWithArgs
+import statusbar.lyric.reflection.ReflectionUtils.findMethod
+import statusbar.lyric.reflection.ReflectionUtils.findMethodByName
+import statusbar.lyric.reflection.ReflectionUtils.getFieldValue
+import statusbar.lyric.reflection.ReflectionUtils.getIntFieldValue
+import statusbar.lyric.runtime.LyricLayoutCalculator
+import statusbar.lyric.runtime.LyricIconResolver
+import statusbar.lyric.runtime.LyricRuntimeController
+import statusbar.lyric.runtime.LyricRuntimeEvent
+import statusbar.lyric.runtime.LyricRuntimePolicy
+import statusbar.lyric.runtime.LyricRuntimeResult
+import statusbar.lyric.runtime.StatusBarGesture
+import statusbar.lyric.runtime.SystemUiVisibilityPolicy
+import statusbar.lyric.runtime.TrackIdentity
+import statusbar.lyric.runtime.StatusBarGestureDetector
+import statusbar.lyric.runtime.TargetViewMatcher
+import statusbar.lyric.runtime.ViewVisibilityOverrideState
+import statusbar.lyric.runtime.TargetViewSpec
+import statusbar.lyric.runtime.icon.SharedLyricIconBitmapCache
+import statusbar.lyric.runtime.input.MediaKeyDispatcher
+import statusbar.lyric.runtime.scheduler.ResettableHandlerTask
+import statusbar.lyric.runtime.style.RuntimeAppearanceSnapshot
+import statusbar.lyric.runtime.style.LyricAppearanceApplier
 import statusbar.lyric.tools.BlurTools.cornerRadius
 import statusbar.lyric.tools.BlurTools.setBackgroundBlur
 import statusbar.lyric.tools.LyricViewTools
@@ -65,16 +79,13 @@ import statusbar.lyric.tools.XiaomiUtils.isXiaomi
 import statusbar.lyric.view.LyricSwitchView
 import statusbar.lyric.view.TitleDialog
 import java.io.File
-import java.lang.reflect.Method
-import java.util.IdentityHashMap
+import java.lang.ref.WeakReference
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.abs
-import kotlin.math.max
-import kotlin.math.min
+import java.util.concurrent.atomic.AtomicLong
 
 /**
- * API 101 SystemUI implementation. It keeps framework interaction in API 101
- * hooks while reusing the module's normal lyric presentation components.
+ * API101 的 SystemUI 实现。框架交互保留在 API101 Hook 层，歌词运行逻辑复用公共组件。
  */
 class Api101SystemUIHook(
     private val module: XposedModule
@@ -86,42 +97,107 @@ class Api101SystemUIHook(
     private val darkIconHookInstalled = AtomicBoolean(false)
     private val configObserverRegistered = AtomicBoolean(false)
     private val screenReceiverRegistered = AtomicBoolean(false)
-    private val configReceiverRegistered = AtomicBoolean(false)
     private val notificationHookInstalled = AtomicBoolean(false)
     private val touchHookInstalled = AtomicBoolean(false)
     private val xiaomiHooksInstalled = AtomicBoolean(false)
     private val focusNotificationHookInstalled = AtomicBoolean(false)
     private val systemUiTest = Api101SystemUITest(module)
-    private val lyricDisplayState = Api101LyricDisplayState()
+    private val visibilityOverrides = ViewVisibilityOverrideState()
+    private val lyricDisplayState = Api101LyricDisplayState(visibilityOverrides)
+    private val targetViewMatcher = TargetViewMatcher()
+    private val lyricAppearanceApplier = LyricAppearanceApplier()
+    private var appearanceSnapshot: RuntimeAppearanceSnapshot? = null
+    private var appliedAppearanceKey: AppliedAppearanceKey? = null
+    private var mediaKeyDispatcher: MediaKeyDispatcher? = null
+    private val iconDecodeGeneration = AtomicLong(0L)
+    private val iconDecodeExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "StatusBarLyric-Api101-IconDecode")
+    }
 
     private var lyricView: LyricSwitchView? = null
     private var lyricLayout: LinearLayout? = null
     private var iconView: ImageView? = null
     private var titleDialog: TitleDialog? = null
-    private var pendingLyric: String = ""
-    private var pendingDelay = 0
-    private var playingPublisher = ""
+    private val runtimeController = LyricRuntimeController(XposedOwnSP.config.masterSwitch)
+    private val runtimeState get() = runtimeController.state
     private var lastTitle = ""
     private var lastBase64Icon = ""
-    private var isMusicPlaying = false
     private var isScreenLocked = false
+    private val runtimeEnabled: Boolean get() = runtimeController.enabled
     private var lyricShowing = false
-    private var notificationIconArea: View? = null
-    private var systemIconsContainer: View? = null
-    private var miuiNetworkSpeedView: View? = null
-    private var miuiPadClockView: View? = null
+    private var notificationIconAreaRef: WeakReference<View>? = null
+    private var notificationIconArea: View?
+        get() = notificationIconAreaRef?.get()
+        set(value) { notificationIconAreaRef = value?.let(::WeakReference) }
+    private var systemIconsContainerRef: WeakReference<View>? = null
+    private var systemIconsContainer: View?
+        get() = systemIconsContainerRef?.get()
+        set(value) { systemIconsContainerRef = value?.let(::WeakReference) }
+    private var miuiNetworkSpeedViewRef: WeakReference<View>? = null
+    private var miuiNetworkSpeedView: View?
+        get() = miuiNetworkSpeedViewRef?.get()
+        set(value) { miuiNetworkSpeedViewRef = value?.let(::WeakReference) }
+    private var miuiPadClockViewRef: WeakReference<View>? = null
+    private var miuiPadClockView: View?
+        get() = miuiPadClockViewRef?.get()
+        set(value) { miuiPadClockViewRef = value?.let(::WeakReference) }
     private var miuiPadClockHiddenForLyric = false
-    private var miuiCarrierLabel: View? = null
-    private var miuiNotificationBigTime: View? = null
+    private var miuiCarrierLabelRef: WeakReference<View>? = null
+    private var miuiCarrierLabel: View?
+        get() = miuiCarrierLabelRef?.get()
+        set(value) { miuiCarrierLabelRef = value?.let(::WeakReference) }
+    private var miuiNotificationBigTimeRef: WeakReference<View>? = null
+    private var miuiNotificationBigTime: View?
+        get() = miuiNotificationBigTimeRef?.get()
+        set(value) { miuiNotificationBigTimeRef = value?.let(::WeakReference) }
     private var focusedNotificationController: Any? = null
     private var focusedNotificationShowing = false
-    private var touchDownPoint: PointF? = null
-    private var systemUiContext: Context? = null
-    private var timeoutRunnable: Runnable? = null
-    private var mountedTarget: View? = null
-    private var mountedParent: ViewGroup? = null
-    private val parentMatchStates = IdentityHashMap<ViewGroup, ParentMatchState>()
-    private val targetParents = IdentityHashMap<View, ViewGroup>()
+    private val statusBarGestureDetector = StatusBarGestureDetector()
+    private var pendingTitleToShow = ""
+    private var mountedTargetRef: WeakReference<View>? = null
+    private var mountedTarget: View?
+        get() = mountedTargetRef?.get()
+        set(value) { mountedTargetRef = value?.let(::WeakReference) }
+    private var mountedParentRef: WeakReference<ViewGroup>? = null
+    private var mountedParent: ViewGroup?
+        get() = mountedParentRef?.get()
+        set(value) { mountedParentRef = value?.let(::WeakReference) }
+    private val timeoutRestoreTask = ResettableHandlerTask(mainHandler) {
+        if (runtimeController.onTimeout()) {
+            hideLyric()
+        }
+    }
+    private val titleDisplayTask = ResettableHandlerTask(mainHandler, action = titleTask@{
+        val title = pendingTitleToShow
+        if (
+            title.isBlank() ||
+            !runtimeState.isPlaying ||
+            lastTitle != title ||
+            !XposedOwnSP.config.titleSwitch
+        ) {
+            return@titleTask
+        }
+        val source = mountedTarget as? TextView ?: return@titleTask
+        (titleDialog ?: TitleDialog(source.context).also { titleDialog = it }).showTitle(title.trim())
+    })
+    private val configRefreshRunnable = Runnable {
+        runCatching {
+            XposedOwnSP.config.update()
+            val enabledChanged = runtimeController.setEnabled(XposedOwnSP.config.masterSwitch)
+            if (!runtimeEnabled) {
+                disableRuntime(resetState = !enabledChanged)
+                return@runCatching
+            }
+            refreshAppearanceSnapshot()
+            applyConfiguration()
+            if (runtimeState.isPlaying && runtimeState.lyric.isNotEmpty()) {
+                showLyric(runtimeState.lyric, runtimeState.delayMillis)
+                refreshTimeoutRestore()
+            }
+        }.onFailure { throwable ->
+            module.log(android.util.Log.WARN, TAG, "API101 config refresh failed", throwable)
+        }
+    }
 
     private val receiver = object : ISuperLyricReceiver.Stub() {
         override fun onLyric(publisher: String?, data: SuperLyricData?) {
@@ -130,28 +206,42 @@ class Api101SystemUIHook(
             if (lyric.isEmpty()) return
             val delay = lyricLine.delay.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             val packageName = publisher.orEmpty()
-            val title = data.title.orEmpty()
+            val trackIdentity = TrackIdentity(
+                title = data.title.orEmpty(),
+                artist = data.artist.orEmpty(),
+                album = data.album.orEmpty()
+            )
             val icon = resolveIconBase64(data, packageName)
 
             mainHandler.post {
                 runCatching {
-                    val sameLyric = isMusicPlaying &&
-                        playingPublisher == packageName &&
-                        pendingLyric == lyric &&
-                        pendingDelay == delay &&
-                        lastBase64Icon == icon
-                    if (sameLyric) {
-                        refreshTimeoutRestore()
-                        return@post
-                    }
-                    isMusicPlaying = true
-                    playingPublisher = packageName
-                    pendingLyric = lyric
-                    pendingDelay = delay
-                    updateIcon(icon)
-                    if (title != lastTitle) {
-                        lastTitle = title
-                        showTitle(title, lyric)
+                    when (
+                        val result = runtimeController.onLyric(
+                            event = LyricRuntimeEvent(
+                                publisher = packageName,
+                                lyric = lyric,
+                                delayMillis = delay,
+                                track = trackIdentity,
+                                iconSource = icon
+                            ),
+                            policy = LyricRuntimePolicy(
+                                includeTrackInIdentity = XposedOwnSP.config.titleSwitch,
+                                includeIconInIdentity = XposedOwnSP.config.iconSwitch
+                            )
+                        )
+                    ) {
+                        LyricRuntimeResult.Disabled -> return@post
+                        LyricRuntimeResult.Duplicate -> {
+                            refreshTimeoutRestore()
+                            return@post
+                        }
+                        is LyricRuntimeResult.Accepted -> {
+                            updateIcon(icon)
+                            if (XposedOwnSP.config.titleSwitch && result.trackChanged) {
+                                lastTitle = trackIdentity.title
+                                showTitle(trackIdentity.title, lyric)
+                            }
+                        }
                     }
                     showLyric(lyric, delay)
                     refreshTimeoutRestore()
@@ -169,13 +259,11 @@ class Api101SystemUIHook(
         override fun onStop(publisher: String?, data: SuperLyricData?) {
             mainHandler.post {
                 runCatching {
-                    if (playingPublisher.isNotEmpty() && playingPublisher != publisher.orEmpty()) return@post
-                    isMusicPlaying = false
-                    playingPublisher = ""
-                    pendingLyric = ""
-                    pendingDelay = 0
-                    timeoutRunnable?.let(mainHandler::removeCallbacks)
-                    timeoutRunnable = null
+                    if (!runtimeController.onStop(publisher.orEmpty())) return@post
+                    iconDecodeGeneration.incrementAndGet()
+                    timeoutRestoreTask.cancel()
+                    titleDisplayTask.cancel()
+                    pendingTitleToShow = ""
                     hideLyric()
                     module.log(
                         android.util.Log.INFO,
@@ -190,11 +278,11 @@ class Api101SystemUIHook(
     }
 
     fun onApplicationAttached(context: Context, classLoader: ClassLoader) {
-        systemUiContext = context
+        mediaKeyDispatcher = MediaKeyDispatcher(context)
         registerConfigObserver()
-        if (!XposedOwnSP.config.masterSwitch) {
-            module.log(android.util.Log.INFO, TAG, "API101 SystemUI hook skipped because masterSwitch is off")
-            return
+        runtimeController.setEnabled(XposedOwnSP.config.masterSwitch)
+        if (!runtimeEnabled) {
+            module.log(android.util.Log.INFO, TAG, "API101 SystemUI runtime starts disabled by masterSwitch")
         }
 
         if (XposedOwnSP.config.testMode) {
@@ -210,58 +298,19 @@ class Api101SystemUIHook(
         registerXiaomiHooks(classLoader)
         registerFocusNotificationHook(classLoader)
         registerTargetViewHook(context, classLoader)
-        registerConfigReceiver(context)
         registerScreenReceiver(context)
     }
 
     private fun registerConfigObserver() {
         if (!configObserverRegistered.compareAndSet(false, true)) return
         XposedOwnSP.registerOnPreferenceChangeListener { _, _ ->
-            mainHandler.post {
-                runCatching {
-                    XposedOwnSP.config.update()
-                    applyConfiguration()
-                    if (isMusicPlaying && pendingLyric.isNotEmpty()) {
-                        showLyric(pendingLyric, pendingDelay)
-                        refreshTimeoutRestore()
-                    }
-                }.onFailure { throwable ->
-                    module.log(android.util.Log.WARN, TAG, "API101 config update failed", throwable)
-                }
-            }
+            scheduleConfigRefresh()
         }
     }
 
-    private fun registerConfigReceiver(context: Context) {
-        if (!configReceiverRegistered.compareAndSet(false, true)) return
-        val receiver = object : BroadcastReceiver() {
-            override fun onReceive(receiverContext: Context, intent: Intent) {
-                mainHandler.post {
-                    runCatching {
-                        XposedOwnSP.config.update()
-                        applyConfiguration()
-                        if (isMusicPlaying && pendingLyric.isNotEmpty()) {
-                            showLyric(pendingLyric, pendingDelay)
-                            refreshTimeoutRestore()
-                        }
-                    }.onFailure { throwable ->
-                        module.log(android.util.Log.WARN, TAG, "API101 configuration broadcast failed", throwable)
-                    }
-                }
-            }
-        }
-        runCatching {
-            val filter = IntentFilter(ACTION_UPDATE_CONFIG)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(receiver, filter, Context.RECEIVER_EXPORTED)
-            } else {
-                @Suppress("UnspecifiedRegisterReceiverFlag")
-                context.registerReceiver(receiver, filter)
-            }
-        }.onFailure { throwable ->
-            configReceiverRegistered.set(false)
-            module.log(android.util.Log.WARN, TAG, "API101 config receiver registration failed", throwable)
-        }
+    private fun scheduleConfigRefresh() {
+        mainHandler.removeCallbacks(configRefreshRunnable)
+        mainHandler.postDelayed(configRefreshRunnable, CONFIG_REFRESH_DEBOUNCE_MILLIS)
     }
 
     private fun registerScreenReceiver(context: Context) {
@@ -271,8 +320,8 @@ class Api101SystemUIHook(
                 isScreenLocked = intent.action == Intent.ACTION_SCREEN_OFF
                 if (isScreenLocked && XposedOwnSP.config.hideLyricWhenLockScreen) {
                     hideLyric()
-                } else if (isMusicPlaying && pendingLyric.isNotEmpty()) {
-                    showLyric(pendingLyric, pendingDelay)
+                } else if (runtimeState.isPlaying && runtimeState.lyric.isNotEmpty()) {
+                    showLyric(runtimeState.lyric, runtimeState.delayMillis)
                 }
             }
         }
@@ -379,52 +428,47 @@ class Api101SystemUIHook(
     }
 
     private fun onStatusBarTouch(event: MotionEvent): Boolean {
-        if (!isMusicPlaying) return false
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                touchDownPoint = PointF(event.rawX, event.rawY)
-                return false
+        if (!runtimeState.isPlaying) {
+            statusBarGestureDetector.reset()
+            return false
+        }
+
+        val gesture = statusBarGestureDetector.onTouchEvent(
+            event = event,
+            swipeXThresholdPx = XposedOwnSP.config.slideStatusBarCutSongsXRadius.toFloat(),
+            swipeYRadiusPx = XposedOwnSP.config.slideStatusBarCutSongsYRadius.toFloat()
+        )
+        return when (gesture) {
+            StatusBarGesture.SwipeNext -> {
+                if (!XposedOwnSP.config.slideStatusBarCutSongs) return false
+                mediaKeyDispatcher?.next()
+                true
             }
 
-            MotionEvent.ACTION_UP -> {
-                val start = touchDownPoint ?: return false
-                val horizontal = start.x - event.rawX
-                val vertical = abs(start.y - event.rawY)
-                val moved = abs(horizontal) > TOUCH_MOVE_THRESHOLD || vertical > TOUCH_MOVE_THRESHOLD
-                if (moved && XposedOwnSP.config.slideStatusBarCutSongs &&
-                    vertical <= XposedOwnSP.config.slideStatusBarCutSongsYRadius
-                ) {
-                    if (abs(horizontal) > XposedOwnSP.config.slideStatusBarCutSongsXRadius) {
-                        dispatchMediaKey(if (horizontal > 0f) KeyEvent.KEYCODE_MEDIA_NEXT else KeyEvent.KEYCODE_MEDIA_PREVIOUS)
-                        return true
-                    }
-                    return false
-                }
-                if (!moved && event.eventTime - event.downTime > LONG_CLICK_MILLIS &&
-                    XposedOwnSP.config.longClickStatusBarStop
-                ) {
-                    dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-                    return true
-                }
-                if (!moved && XposedOwnSP.config.clickStatusBarToHideLyric && isTouchInsideLyric(event)) {
-                    if (lyricShowing) hideLyric() else showLyric(pendingLyric, pendingDelay)
-                    return true
-                }
+            StatusBarGesture.SwipePrevious -> {
+                if (!XposedOwnSP.config.slideStatusBarCutSongs) return false
+                mediaKeyDispatcher?.previous()
+                true
             }
+
+            StatusBarGesture.LongPress -> {
+                if (!XposedOwnSP.config.longClickStatusBarStop) return false
+                mediaKeyDispatcher?.playPause()
+                true
+            }
+
+            StatusBarGesture.Tap -> {
+                if (!XposedOwnSP.config.clickStatusBarToHideLyric || !isTouchInsideLyric(event)) return false
+                if (lyricShowing) hideLyric() else showLyric(runtimeState.lyric, runtimeState.delayMillis)
+                true
+            }
+
+            StatusBarGesture.None -> false
         }
-        return false
     }
 
     private fun isTouchInsideLyric(event: MotionEvent): Boolean {
-        val layout = lyricLayout ?: return false
-        return event.x >= layout.left && event.x <= layout.right &&
-            event.y >= layout.top && event.y <= layout.bottom
-    }
-
-    private fun dispatchMediaKey(keyCode: Int) {
-        val audioManager = systemUiContext?.getSystemService(AudioManager::class.java) ?: return
-        audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
-        audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
+        return StatusBarGestureDetector.containsRawPoint(lyricLayout, event.rawX, event.rawY)
     }
 
     private fun registerXiaomiHooks(classLoader: ClassLoader) {
@@ -528,11 +572,11 @@ class Api101SystemUIHook(
     private fun onFocusNotificationEvaluated(controller: Any?, showing: Boolean) {
         focusedNotificationController = controller
         focusedNotificationShowing = showing
-        if (!XposedOwnSP.config.automateFocusedNotice || !isMusicPlaying) return
+        if (!XposedOwnSP.config.automateFocusedNotice || !runtimeState.isPlaying) return
         if (showing) {
             hideLyric()
-        } else if (pendingLyric.isNotEmpty()) {
-            showLyric(pendingLyric, pendingDelay)
+        } else if (runtimeState.lyric.isNotEmpty()) {
+            showLyric(runtimeState.lyric, runtimeState.delayMillis)
         }
     }
 
@@ -558,9 +602,9 @@ class Api101SystemUIHook(
             val name = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull()
             if (name == "system_icons") systemIconsContainer = view
         }
-        if (view !== systemIconsContainer || !isMusicPlaying) return
-        if (visibility == View.VISIBLE && pendingLyric.isNotEmpty()) {
-            showLyric(pendingLyric, pendingDelay)
+        if (view !== systemIconsContainer || !runtimeState.isPlaying) return
+        if (visibility == View.VISIBLE && runtimeState.lyric.isNotEmpty()) {
+            showLyric(runtimeState.lyric, runtimeState.delayMillis)
         } else if (visibility != View.VISIBLE) {
             hideLyric()
         }
@@ -607,7 +651,7 @@ class Api101SystemUIHook(
         val view = candidate as? View ?: return
         val source = view as? TextView ?: return
         if (view === lyricView) return
-        val match = findConfiguredTarget(source) ?: return
+        val match = targetViewMatcher.match(source, currentTargetViewSpec()) ?: return
 
         mainHandler.post {
             runCatching {
@@ -634,8 +678,16 @@ class Api101SystemUIHook(
 
                 mountedTarget = view
                 mountedParent = parent
-                if (isMusicPlaying && pendingLyric.isNotEmpty()) {
-                    showLyric(pendingLyric, pendingDelay)
+                source.post {
+                    if (mountedTarget === source) {
+                        applyConfiguration(source)
+                    }
+                }
+                if (runtimeState.isPlaying && lastBase64Icon.isNotBlank()) {
+                    updateIcon(lastBase64Icon, force = true)
+                }
+                if (runtimeState.isPlaying && runtimeState.lyric.isNotEmpty()) {
+                    showLyric(runtimeState.lyric, runtimeState.delayMillis)
                 }
                 module.log(
                     android.util.Log.INFO,
@@ -653,7 +705,7 @@ class Api101SystemUIHook(
         val lyric = object : LyricSwitchView(context) {
             override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
                 super.onSizeChanged(w, h, oldw, oldh)
-                applyGradient(this)
+                lyricAppearanceApplier.applyGradient(this, currentAppearanceSnapshot())
             }
         }.apply {
             visibility = View.VISIBLE
@@ -675,18 +727,7 @@ class Api101SystemUIHook(
     private fun onTargetViewDetached(candidate: Any?, parentBeforeDetach: ViewGroup?) {
         val view = candidate as? View ?: return
         lyricDisplayState.unbindClock(view)
-        val parent = synchronized(parentMatchStates) {
-            val knownParent = targetParents.remove(view) ?: parentBeforeDetach
-            if (knownParent != null) {
-                parentMatchStates[knownParent]?.let { state ->
-                    state.matchedIndices.remove(view)
-                    if (state.matchedIndices.isEmpty()) {
-                        parentMatchStates.remove(knownParent)
-                    }
-                }
-            }
-            knownParent
-        }
+        val parent = targetViewMatcher.forget(view, parentBeforeDetach)
 
         if (mountedTarget !== view) return
         mountedTarget = null
@@ -708,102 +749,36 @@ class Api101SystemUIHook(
         }
     }
 
-    private fun findConfiguredTarget(view: View): TargetMatch? {
+    private fun currentTargetViewSpec(): TargetViewSpec {
         val config = XposedOwnSP.config
-        if (view !is TextView || view.javaClass.name != config.textViewClassName) return null
-        if (view.id != config.textViewId) return null
-
-        // A zero/default recorded text size means "do not constrain by size".
-        val expectedTextSize = config.textSize
-        if (expectedTextSize > 0f && abs(view.textSize - expectedTextSize) > TEXT_SIZE_EPSILON) {
-            return null
-        }
-
-        val parent = view.parent as? ViewGroup ?: return null
-        if (parent.javaClass.name != config.parentViewClassName || parent.id != config.parentViewId) return null
-
-        val index = synchronized(parentMatchStates) {
-            val state = parentMatchStates.getOrPut(parent) { ParentMatchState() }
-            state.matchedIndices[view] ?: state.nextIndex.also {
-                state.nextIndex += 1
-                state.matchedIndices[view] = it
-                targetParents[view] = parent
-            }
-        }
-        return if (index == config.index) TargetMatch(parent, index) else null
-    }
-
-    private fun applyLyricAppearance(target: LyricSwitchView, source: TextView) {
-        val config = XposedOwnSP.config
-        target.setSingleLine(true)
-        target.setMaxLines(1)
-        target.setTypeface(source.typeface)
-
-        val lyricSize = if (config.lyricSize > 0) config.lyricSize.toFloat() else source.textSize
-        if (lyricSize > 0f) {
-            target.setTextSize(TypedValue.COMPLEX_UNIT_PX, lyricSize)
-        }
-
-        val lyricColor = parseColor(config.lyricColor)
-        val useDynamicColor = config.lyricColor.isEmpty() && config.lyricGradientColor.isEmpty()
-        target.setTextColor(
-            lyricColor ?: lyricDisplayState.resolveTextColor(source.currentTextColor, useDynamicColor)
+        return TargetViewSpec(
+            textViewClassName = config.textViewClassName,
+            textViewId = config.textViewId,
+            parentViewClassName = config.parentViewClassName,
+            parentViewId = config.parentViewId,
+            expectedTextSizePx = config.textSize,
+            targetIndex = config.index
         )
-        target.setLinearGradient(null)
-        target.setLetterSpacings(if (config.lyricLetterSpacing == 0) {
-            source.letterSpacing
-        } else {
-            config.lyricLetterSpacing / 100f
-        })
-        target.setStrokeWidth(config.lyricStrokeWidth / 100f)
-        applyBackground(target, config.lyricBackgroundColor, config.lyricBackgroundRadius)
-        applyGradient(target)
-        applyTypeface(target, source.typeface)
     }
 
-    private fun applyBackground(target: LyricSwitchView, value: String, radius: Int) {
-        target.setBackgroundColor(Color.TRANSPARENT)
-        val colors = parseColorList(value)
-        if (colors.isEmpty()) return
-
-        target.background = if (colors.size == 1) {
-            GradientDrawable().apply {
-                setColor(colors[0])
-                if (radius > 0) cornerRadius = radius.toFloat()
-            }
-        } else {
-            GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, colors.toIntArray()).apply {
-                if (radius > 0) cornerRadius = radius.toFloat()
-            }
-        }
-    }
-
-    private fun applyGradient(target: LyricSwitchView) {
-        val colors = parseColorList(XposedOwnSP.config.lyricGradientColor)
-        if (colors.size < 2 || target.width <= 0) {
-            if (colors.size == 1) target.setTextColor(colors[0])
-            return
-        }
-        target.setLinearGradient(
-            LinearGradient(
-                0f,
-                0f,
-                target.width.toFloat(),
-                0f,
-                colors.toIntArray(),
-                null,
-                Shader.TileMode.CLAMP
+    private fun applyLyricAppearance(
+        target: LyricSwitchView,
+        source: TextView,
+        appearance: RuntimeAppearanceSnapshot = currentAppearanceSnapshot()
+    ) {
+        lyricAppearanceApplier.applyText(
+            target = target,
+            appearance = appearance,
+            sourceTextSizePx = source.textSize,
+            sourceTextColor = source.currentTextColor,
+            sourceLetterSpacing = source.letterSpacing,
+            fallbackTypeface = source.typeface,
+            fontFile = File(source.context.filesDir, "font"),
+            dynamicTextColor = lyricDisplayState.resolveTextColor(
+                source.currentTextColor,
+                appearance.usesDynamicLyricColor
             )
         )
-    }
-
-    private fun applyTypeface(target: LyricSwitchView, fallback: Typeface) {
-        val customTypeface = runCatching {
-            File("${mountedParent?.context?.filesDir?.path}/font")
-                .takeIf { it.exists() && it.canRead() }
-                ?.let(Typeface::createFromFile)
-        }.getOrNull()
-        target.setTypeface(customTypeface ?: fallback)
     }
 
     private fun createLayoutParams(source: View): ViewGroup.LayoutParams {
@@ -818,11 +793,12 @@ class Api101SystemUIHook(
         )
         params.width = ViewGroup.LayoutParams.WRAP_CONTENT
         params.height = ViewGroup.LayoutParams.MATCH_PARENT
+        val appearance = currentAppearanceSnapshot()
         (params as? ViewGroup.MarginLayoutParams)?.setMargins(
-            XposedOwnSP.config.lyricStartMargins,
-            XposedOwnSP.config.lyricTopMargins,
-            XposedOwnSP.config.lyricEndMargins,
-            XposedOwnSP.config.lyricBottomMargins
+            appearance.lyricStartMargin,
+            appearance.lyricTopMargin,
+            appearance.lyricEndMargin,
+            appearance.lyricBottomMargin
         )
         return params
     }
@@ -830,63 +806,91 @@ class Api101SystemUIHook(
     private fun applyConfiguration(source: TextView? = mountedTarget as? TextView) {
         val clock = source ?: return
         val lyric = lyricView ?: return
-        val config = XposedOwnSP.config
-        applyLyricAppearance(lyric, clock)
-        lyric.setScrollSpeed(config.lyricSpeed.toFloat())
-        lyric.inAnimation = LyricViewTools.switchViewInAnima(
-            if (config.lyricAnimation == 11) randomAnima else config.lyricAnimation,
-            config.lyricInterpolator,
-            config.animationDuration
+        val appearance = currentAppearanceSnapshot()
+        val key = AppliedAppearanceKey(
+            appearance = appearance,
+            sourceTextSize = clock.textSize,
+            sourceTextColor = clock.currentTextColor,
+            sourceLetterSpacing = clock.letterSpacing,
+            sourceTypefaceIdentity = System.identityHashCode(clock.typeface),
+            sourceHeight = clock.height,
+            mountedParentIdentity = System.identityHashCode(mountedParent)
         )
-        lyric.outAnimation = LyricViewTools.switchViewOutAnima(
-            config.lyricAnimation,
-            config.animationDuration
-        )
-        if (isHyperOS && config.mHyperOSTexture) {
-            runCatching {
-                lyricLayout?.setBackgroundBlur(
-                    config.mHyperOSTextureRadio,
-                    cornerRadius(config.mHyperOSTextureCorner.toFloat()),
-                    arrayOf(
-                        intArrayOf(106, parseColor(config.mHyperOSTextureBgColor) ?: Color.TRANSPARENT),
-                        intArrayOf(3, parseColor(config.mHyperOSTextureBgColor) ?: Color.TRANSPARENT)
+
+        if (appliedAppearanceKey != key) {
+            lyricLayout?.let { lyricAppearanceApplier.applyMargins(it, appearance) }
+            applyLyricAppearance(lyric, clock, appearance)
+            lyric.setScrollSpeed(appearance.lyricSpeed)
+            lyric.inAnimation = LyricViewTools.switchViewInAnima(
+                if (appearance.lyricAnimation == 11) randomAnima else appearance.lyricAnimation,
+                appearance.lyricInterpolator,
+                appearance.animationDurationMillis
+            )
+            lyric.outAnimation = LyricViewTools.switchViewOutAnima(
+                appearance.lyricAnimation,
+                appearance.animationDurationMillis
+            )
+            if (isHyperOS && appearance.hyperTextureEnabled) {
+                runCatching {
+                    lyricLayout?.setBackgroundBlur(
+                        appearance.hyperTextureRadius,
+                        cornerRadius(appearance.hyperTextureCorner.toFloat()),
+                        arrayOf(
+                            intArrayOf(106, appearance.hyperTextureBackgroundColor),
+                            intArrayOf(3, appearance.hyperTextureBackgroundColor)
+                        )
                     )
-                )
-            }.onFailure { throwable ->
-                module.log(android.util.Log.INFO, TAG, "API101 HyperOS texture unavailable", throwable)
+                }.onFailure { throwable ->
+                    module.log(android.util.Log.INFO, TAG, "API101 HyperOS texture unavailable", throwable)
+                }
             }
+
+            iconView?.let {
+                lyricAppearanceApplier.applyIcon(
+                    target = it,
+                    appearance = appearance,
+                    sourceHeightPx = clock.height,
+                    sourceTextColor = clock.currentTextColor
+                )
+            }
+            appliedAppearanceKey = key
         }
 
-        iconView?.apply {
-            if (!config.iconSwitch) {
-                visibility = View.GONE
-                return@apply
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
-            ).apply {
-                setMargins(
-                    config.iconStartMargins,
-                    config.iconTopMargins,
-                    0,
-                    config.iconBottomMargins
-                )
-                val size = if (config.iconSize == 0) clock.height / 2 else config.iconSize
-                width = size
-                height = size
-            }
-            setColorFilter(
-                parseColor(config.iconColor) ?: clock.currentTextColor,
-                PorterDuff.Mode.SRC_IN
-            )
-            setBackgroundColor(parseColor(config.iconBgColor) ?: Color.TRANSPARENT)
-            visibility = if (lastBase64Icon.isEmpty()) View.GONE else View.VISIBLE
+        iconView?.visibility = if (!appearance.iconEnabled || lastBase64Icon.isEmpty()) {
+            View.GONE
+        } else {
+            View.VISIBLE
+        }
+    }
+
+
+    private fun disableRuntime(resetState: Boolean = true) {
+        if (resetState) runtimeController.reset()
+        lastTitle = ""
+        pendingTitleToShow = ""
+        iconDecodeGeneration.incrementAndGet()
+        timeoutRestoreTask.cancel()
+        titleDisplayTask.cancel()
+        statusBarGestureDetector.reset()
+        hideLyric()
+    }
+
+    private fun currentAppearanceSnapshot(): RuntimeAppearanceSnapshot {
+        return appearanceSnapshot ?: RuntimeAppearanceSnapshot.from(XposedOwnSP.config).also {
+            appearanceSnapshot = it
+        }
+    }
+
+    private fun refreshAppearanceSnapshot() {
+        val updated = RuntimeAppearanceSnapshot.from(XposedOwnSP.config)
+        if (appearanceSnapshot != updated) {
+            appearanceSnapshot = updated
+            appliedAppearanceKey = null
         }
     }
 
     private fun showLyric(lyric: String, delay: Int) {
-        if (lyric.isEmpty()) return
+        if (!runtimeEnabled || lyric.isEmpty()) return
         if (XposedOwnSP.config.hideLyricWhenLockScreen && isScreenLocked) return
         val layout = lyricLayout ?: return
         val lyricDisplay = lyricView ?: return
@@ -897,52 +901,28 @@ class Api101SystemUIHook(
         layout.cancelAnimation()
         layout.visibility = View.VISIBLE
         lyricShowing = true
-        if (XposedOwnSP.config.hideNotificationIcon) {
-            notificationIconArea?.visibility = View.GONE
-        }
-        if (XposedOwnSP.config.hideTime) {
-            if (XposedOwnSP.config.mMiuiPadOptimize) {
-                miuiPadClockHiddenForLyric = miuiPadClockView != null
-                miuiPadClockView?.visibility = View.GONE
-            }
-            miuiNotificationBigTime?.visibility = View.GONE
-        }
-        if (XposedOwnSP.config.mMiuiHideNetworkSpeed) miuiNetworkSpeedView?.visibility = View.GONE
-        if (XposedOwnSP.config.hideCarrier) miuiCarrierLabel?.visibility = View.GONE
-        applyConfiguration()
+        syncSystemUiVisibilityOverrides()
 
-        val width = getLyricWidth(lyric, parent)
-        lyricDisplay.setWidth(width)
-        val measuredTextWidth = TextView(parent.context).apply {
-            setTextSize(
-                TypedValue.COMPLEX_UNIT_PX,
-                if (XposedOwnSP.config.lyricSize == 0) {
-                    (mountedTarget as? TextView)?.textSize ?: 0f
-                } else {
-                    XposedOwnSP.config.lyricSize.toFloat()
-                }
-            )
-            typeface = (mountedTarget as? TextView)?.typeface
-            letterSpacing = XposedOwnSP.config.lyricLetterSpacing / 100f
-            paint.strokeWidth = XposedOwnSP.config.lyricStrokeWidth / 100f
-        }.paint.measureText(lyric).toInt()
-        val overflow = measuredTextWidth - width
-        if (overflow > 0 && width > 0) {
-            val speed = when {
-                delay > 0 -> {
-                    (0.3f + (overflow.toFloat() / width) * (5f / (delay / 1000f))).coerceIn(0.3f, 5f)
-                }
-
-                XposedOwnSP.config.dynamicLyricSpeed -> 10f * overflow / width + 0.7f
-                else -> XposedOwnSP.config.lyricSpeed.toFloat()
-            }
-            lyricDisplay.setScrollSpeed(speed)
-        }
+        val appearance = currentAppearanceSnapshot()
+        val layoutResult = LyricLayoutCalculator.calculate(
+            textWidthPx = lyricDisplay.measureText(lyric).toInt(),
+            parentWidthPx = parent.width,
+            startMarginPx = appearance.lyricStartMargin,
+            endMarginPx = appearance.lyricEndMargin,
+            widthPercent = appearance.lyricWidthPercent,
+            fixedWidth = appearance.fixedLyricWidth,
+            dynamicSpeed = appearance.dynamicLyricSpeed,
+            baseSpeed = appearance.lyricSpeed,
+            delayMillis = delay
+        )
+        lyricDisplay.setWidth(layoutResult.widthPx)
+        lyricDisplay.setScrollSpeed(layoutResult.scrollSpeed)
         lyricDisplay.stopAllScroll()
         lyricDisplay.setText(lyric)
     }
 
     private fun hideLyric() {
+        titleDisplayTask.cancel()
         lyricDisplayState.updateLyricVisibility(show = false, hideTime = false)
         lyricShowing = false
         lyricLayout?.hideView(false)
@@ -951,143 +931,118 @@ class Api101SystemUIHook(
             setText("")
         }
         titleDialog?.hideTitle()
-        notificationIconArea?.visibility = View.VISIBLE
-        if (miuiPadClockHiddenForLyric) {
-            miuiPadClockHiddenForLyric = false
-            miuiPadClockView?.visibility = View.VISIBLE
-        }
-        miuiNotificationBigTime?.visibility = View.VISIBLE
-        miuiNetworkSpeedView?.visibility = View.VISIBLE
-        miuiCarrierLabel?.visibility = View.VISIBLE
+        visibilityOverrides.restoreAll()
     }
 
-    private fun getLyricWidth(lyric: String, parent: ViewGroup): Int {
-        val source = mountedTarget as? TextView ?: return ViewGroup.LayoutParams.WRAP_CONTENT
-        val measure = TextView(parent.context).apply {
-            setTextSize(
-                TypedValue.COMPLEX_UNIT_PX,
-                if (XposedOwnSP.config.lyricSize == 0) source.textSize else XposedOwnSP.config.lyricSize.toFloat()
-            )
-            typeface = source.typeface
-            letterSpacing = XposedOwnSP.config.lyricLetterSpacing / 100f
-            paint.strokeWidth = XposedOwnSP.config.lyricStrokeWidth / 100f
-        }
-        val textWidth = measure.paint.measureText(lyric).toInt()
-        val availableWidth = max(
-            parent.width - XposedOwnSP.config.lyricStartMargins - XposedOwnSP.config.lyricEndMargins,
-            0
+    private fun syncSystemUiVisibilityOverrides() {
+        val policy = currentVisibilityPolicy()
+        syncVisibility(notificationIconArea, policy.hideNotificationIcons)
+        syncVisibility(miuiPadClockView, policy.hidePadClock)
+        syncVisibility(miuiNotificationBigTime, policy.hideNotificationBigTime)
+        syncVisibility(miuiNetworkSpeedView, policy.hideNetworkSpeed)
+        syncVisibility(miuiCarrierLabel, policy.hideCarrier)
+    }
+
+    private fun currentVisibilityPolicy(): SystemUiVisibilityPolicy {
+        val config = XposedOwnSP.config
+        return SystemUiVisibilityPolicy.create(
+            hideTime = config.hideTime,
+            hideNotificationIcons = config.hideNotificationIcon,
+            optimizePadClock = config.mMiuiPadOptimize,
+            hideNetworkSpeed = config.mMiuiHideNetworkSpeed,
+            hideCarrier = config.hideCarrier
         )
-        val configuredWidth = XposedOwnSP.config.lyricWidth
-        if (configuredWidth == 0) return min(textWidth, availableWidth)
-        val display = parent.resources.displayMetrics
-        val scaleBase = max(display.widthPixels, display.heightPixels)
-        val scaledWidth = (configuredWidth / 100f * scaleBase).toInt()
-        return if (XposedOwnSP.config.fixedLyricWidth) scaledWidth else min(textWidth, scaledWidth)
+    }
+
+    private fun syncVisibility(view: View?, hidden: Boolean) {
+        if (hidden) visibilityOverrides.apply(view, View.GONE)
+        else visibilityOverrides.restore(view)
     }
 
     private fun refreshTimeoutRestore() {
-        timeoutRunnable?.let(mainHandler::removeCallbacks)
-        if (!XposedOwnSP.config.timeoutRestore) return
-        timeoutRunnable = Runnable {
-            if (isMusicPlaying) {
-                pendingLyric = ""
-                pendingDelay = 0
-                hideLyric()
-            }
-        }.also {
-            mainHandler.postDelayed(
-                it,
-                XposedOwnSP.config.timeoutRestoreSeconds * 1000L
-            )
+        if (!XposedOwnSP.config.timeoutRestore) {
+            timeoutRestoreTask.cancel()
+            return
         }
+        timeoutRestoreTask.schedule(XposedOwnSP.config.timeoutRestoreSeconds * 1000L)
     }
 
     private fun showTitle(title: String, lyric: String) {
-        if (!XposedOwnSP.config.titleSwitch || title.isBlank()) return
-        if (!XposedOwnSP.config.titleShowWithSameLyric && title == lyric) return
-        mainHandler.postDelayed({
-            if (!isMusicPlaying || lastTitle != title) return@postDelayed
-            val source = mountedTarget as? TextView ?: return@postDelayed
-            (titleDialog ?: TitleDialog(source.context).also { titleDialog = it }).showTitle(title.trim())
-        }, TITLE_DELAY_MILLIS)
-    }
-
-    private fun resolveIconBase64(data: SuperLyricData, publisher: String): String {
-        if (!XposedOwnSP.config.iconSwitch) return ""
-        return XposedOwnSP.config.changeAllIcons.ifEmpty {
-            data.base64Icon.orEmpty().ifEmpty { XposedOwnSP.config.getDefaultIcon(publisher) }
+        if (!XposedOwnSP.config.titleSwitch || title.isBlank() ||
+            (!XposedOwnSP.config.titleShowWithSameLyric && title == lyric)
+        ) {
+            pendingTitleToShow = ""
+            titleDisplayTask.cancel()
+            return
         }
+        pendingTitleToShow = title
+        titleDisplayTask.schedule(TITLE_DELAY_MILLIS)
     }
 
-    private fun updateIcon(base64Icon: String) {
+    private fun resolveIconBase64(data: SuperLyricData, publisher: String): String =
+        LyricIconResolver.resolve(
+            enabled = XposedOwnSP.config.iconSwitch,
+            overrideIcon = XposedOwnSP.config.changeAllIcons,
+            eventIcon = data.base64Icon,
+            defaultIcon = { XposedOwnSP.config.getDefaultIcon(publisher) }
+        )
+
+    private fun updateIcon(base64Icon: String, force: Boolean = false) {
+        if (!force && base64Icon == lastBase64Icon) return
         lastBase64Icon = base64Icon
-        val icon = iconView ?: return
+        val generation = iconDecodeGeneration.incrementAndGet()
+        val icon = iconView
         if (!XposedOwnSP.config.iconSwitch || base64Icon.isBlank()) {
-            icon.visibility = View.GONE
+            icon?.visibility = View.GONE
             return
         }
-        val bitmap = runCatching {
-            val raw = base64Icon.substringAfter("base64,", base64Icon).trim()
-            if (raw.length > MAX_ICON_BASE64_CHARS) return@runCatching null
-            val bytes = Base64.decode(raw, Base64.DEFAULT)
-            if (bytes.size > MAX_ICON_BYTES) return@runCatching null
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        }.getOrNull()
-        if (bitmap == null) {
-            icon.visibility = View.GONE
-            return
-        }
-        icon.setImageBitmap(bitmap)
-        applyConfiguration()
-    }
+        if (icon == null || mountedTarget == null) return
 
-    private fun parseColor(value: String): Int? {
-        val normalized = value.trim()
-        if (normalized.isEmpty()) return null
-        return runCatching { Color.parseColor(normalized) }.getOrNull()
-    }
+        iconDecodeExecutor.execute {
+            val bitmap = SharedLyricIconBitmapCache.instance.getOrDecode(base64Icon)
+            mainHandler.post {
+                if (
+                    generation != iconDecodeGeneration.get() ||
+                    lastBase64Icon != base64Icon ||
+                    !runtimeState.isPlaying
+                ) {
+                    return@post
+                }
 
-    private fun parseColorList(value: String): List<Int> {
-        val tokens = value.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-        if (tokens.isEmpty()) return emptyList()
-        return runCatching { tokens.map { Color.parseColor(it) } }.getOrElse { throwable ->
-            module.log(android.util.Log.WARN, TAG, "API101 background color ignored: $value", throwable)
-            emptyList()
+                val currentIcon = iconView
+                if (currentIcon == null || mountedTarget == null) {
+                    return@post
+                }
+                if (bitmap == null) {
+                    currentIcon.visibility = View.GONE
+                } else {
+                    currentIcon.setImageBitmap(bitmap)
+                    currentIcon.visibility = View.VISIBLE
+                }
+            }
         }
     }
 
     private fun onClockVisibilityRequested(view: View?, requestedVisibility: Int): Boolean {
         observeSystemIconsVisibility(view, requestedVisibility)
-        if (lyricDisplayState.shouldKeepClockHidden(
+        return visibilityOverrides.onVisibilityRequested(
             view = view,
             requestedVisibility = requestedVisibility,
-            hideTime = XposedOwnSP.config.hideTime,
-            limitVisibilityChange = XposedOwnSP.config.limitVisibilityChange
-        )) {
-            return true
-        }
-        return XposedOwnSP.config.limitVisibilityChange &&
-            lyricShowing &&
-            requestedVisibility == View.VISIBLE &&
-            ((XposedOwnSP.config.hideNotificationIcon && notificationIconArea === view) ||
-                (XposedOwnSP.config.hideTime &&
-                    (miuiNotificationBigTime === view ||
-                        (XposedOwnSP.config.mMiuiPadOptimize && miuiPadClockView === view))) ||
-                (XposedOwnSP.config.mMiuiHideNetworkSpeed && miuiNetworkSpeedView === view) ||
-                (XposedOwnSP.config.hideCarrier && miuiCarrierLabel === view))
+            keepHiddenOverride = XposedOwnSP.config.limitVisibilityChange && lyricShowing
+        ) == View.GONE
     }
 
     private fun onDarkIntensityApplied(dispatcher: Any?) {
         val tint = findIntField(dispatcher, "mIconTint") ?: return
         mainHandler.post {
             runCatching {
-                val config = XposedOwnSP.config
+                val appearance = currentAppearanceSnapshot()
                 lyricDisplayState.updateDynamicTint(
                     lyricView = lyricView,
                     tint = tint,
-                    useDynamicColor = config.lyricColor.isEmpty() && config.lyricGradientColor.isEmpty()
+                    useDynamicColor = appearance.usesDynamicLyricColor
                 )
-                if (config.iconColor.isEmpty()) {
+                if (appearance.iconColor == null) {
                     iconView?.setColorFilter(tint, PorterDuff.Mode.SRC_IN)
                 }
             }.onFailure { throwable ->
@@ -1096,81 +1051,23 @@ class Api101SystemUIHook(
         }
     }
 
-    private fun findMethod(clazz: Class<*>, name: String, parameterCount: Int): Method? {
-        var current: Class<*>? = clazz
-        while (current != null) {
-            current.declaredMethods.firstOrNull {
-                it.name == name && it.parameterTypes.size == parameterCount && !it.isBridge
-            }?.let {
-                return it
-            }
-            current = current.superclass
-        }
-        return null
-    }
-
-    private fun findMethodByName(clazz: Class<*>, name: String): Method? {
-        var current: Class<*>? = clazz
-        while (current != null) {
-            current.declaredMethods.firstOrNull { it.name == name && !it.isBridge }?.let { return it }
-            current = current.superclass
-        }
-        return null
-    }
-
     private fun findObjectField(instance: Any?, name: String): Any? {
-        var current = instance?.javaClass ?: return null
-        while (current != Any::class.java) {
-            current.declaredFields.firstOrNull { it.name == name }?.let { field ->
-                return runCatching {
-                    field.isAccessible = true
-                    field.get(instance)
-                }.getOrNull()
-            }
-            current = current.superclass ?: return null
-        }
-        return null
-    }
-
-    private fun callNoArg(instance: Any, name: String): Any? {
-        var current: Class<*>? = instance.javaClass
-        while (current != null) {
-            current.declaredMethods.firstOrNull { it.name == name && it.parameterCount == 0 }?.let { method ->
-                return runCatching {
-                    method.isAccessible = true
-                    method.invoke(instance)
-                }.getOrNull()
-            }
-            current = current.superclass
-        }
-        return null
-    }
-
-    private fun callWithArgs(instance: Any, name: String, vararg args: Any?) {
-        var current: Class<*>? = instance.javaClass
-        while (current != null) {
-            current.declaredMethods.firstOrNull { it.name == name && it.parameterCount == args.size }?.let { method ->
-                method.isAccessible = true
-                method.invoke(instance, *args)
-                return
-            }
-            current = current.superclass
-        }
+        return instance?.let { getFieldValue(it, name) }
     }
 
     private fun findIntField(instance: Any?, name: String): Int? {
-        var current = instance?.javaClass ?: return null
-        while (current != Any::class.java) {
-            current.declaredFields.firstOrNull { it.name == name }?.let { field ->
-                return runCatching {
-                    field.isAccessible = true
-                    field.getInt(instance)
-                }.getOrNull()
-            }
-            current = current.superclass ?: return null
-        }
-        return null
+        return instance?.let { getIntFieldValue(it, name) }
     }
+
+    private data class AppliedAppearanceKey(
+        val appearance: RuntimeAppearanceSnapshot,
+        val sourceTextSize: Float,
+        val sourceTextColor: Int,
+        val sourceLetterSpacing: Float,
+        val sourceTypefaceIdentity: Int,
+        val sourceHeight: Int,
+        val mountedParentIdentity: Int
+    )
 
     private class TargetViewHooker(
         private val owner: Api101SystemUIHook
@@ -1289,26 +1186,14 @@ class Api101SystemUIHook(
         }
     }
 
-    private data class TargetMatch(
-        val parent: ViewGroup,
-        val index: Int
-    )
-
     private enum class XiaomiViewKind {
         NETWORK_SPEED,
         CARRIER
     }
 
-    private class ParentMatchState(
-        var nextIndex: Int = 0,
-        val matchedIndices: IdentityHashMap<View, Int> = IdentityHashMap()
-    )
-
     private companion object {
         const val TAG = "StatusBarLyric/API101"
-        const val ACTION_UPDATE_CONFIG = "updateConfig"
         const val DARK_ICON_DISPATCHER_CLASS = "com.android.systemui.statusbar.phone.DarkIconDispatcherImpl"
-        const val TEXT_SIZE_EPSILON = 0.5f
         const val PHONE_STATUS_BAR_VIEW_CLASS = "com.android.systemui.statusbar.phone.PhoneStatusBarView"
         const val NOTIFICATION_ICON_AREA_CONTROLLER_CLASS = "com.android.systemui.statusbar.phone.NotificationIconAreaController"
         const val COLLAPSED_STATUS_BAR_FRAGMENT_CLASS = "com.android.systemui.statusbar.phone.fragment.CollapsedStatusBarFragment"
@@ -1318,9 +1203,6 @@ class Api101SystemUIHook(
         const val MIUI_NOTIFICATION_CALLBACK_CLASS = "com.android.systemui.controlcenter.shade.NotificationHeaderExpandController\$notificationCallback\$1"
         const val FOCUSED_NOTIFICATION_CONTROLLER_CLASS = "com.android.systemui.statusbar.phone.FocusedNotifPromptController"
         const val TITLE_DELAY_MILLIS = 800L
-        const val MAX_ICON_BASE64_CHARS = 700_000
-        const val MAX_ICON_BYTES = 524_288
-        const val LONG_CLICK_MILLIS = 500L
-        const val TOUCH_MOVE_THRESHOLD = 50f
+        const val CONFIG_REFRESH_DEBOUNCE_MILLIS = 32L
     }
 }

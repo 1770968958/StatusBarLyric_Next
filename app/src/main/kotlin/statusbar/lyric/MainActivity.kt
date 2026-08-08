@@ -45,6 +45,11 @@ import statusbar.lyric.config.ActivityOwnSP.config
 import statusbar.lyric.config.ActivityOwnSP.updateConfigVer
 import statusbar.lyric.data.Data
 import statusbar.lyric.runtime.ModuleRuntimeBridge
+import statusbar.lyric.runtime.test.AnchorTestProtocol.ACTION_APP_TEST_RECEIVER
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_DATA_LIST
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_REQUEST_ID
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_TYPE
+import statusbar.lyric.runtime.test.AnchorTestProtocol.TYPE_RECEIVE_CLASS
 import statusbar.lyric.tools.ActivityTools
 import statusbar.lyric.tools.ActivityTools.dataList
 import statusbar.lyric.tools.BackupTools
@@ -57,6 +62,7 @@ class MainActivity : ComponentActivity() {
     private val appTestReceiver by lazy { AppTestReceiver() }
     lateinit var createDocumentLauncher: ActivityResultLauncher<Intent>
     lateinit var openDocumentLauncher: ActivityResultLauncher<Intent>
+    private var stopObservingActivation: (() -> Unit)? = null
 
     companion object {
         lateinit var appContext: Context private set
@@ -126,12 +132,23 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        ModuleRuntimeBridge.initialize { isLoad = it }
+        ModuleRuntimeBridge.initialize()
         init()
 
         setContent {
             App()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        stopObservingActivation = ModuleRuntimeBridge.observeActivation { isLoad = it }
+    }
+
+    override fun onStop() {
+        stopObservingActivation?.invoke()
+        stopObservingActivation = null
+        super.onStop()
     }
 
     override fun onDestroy() {
@@ -161,17 +178,17 @@ class MainActivity : ComponentActivity() {
     inner class AppTestReceiver : BroadcastReceiver() {
         @Suppress("DEPRECATION", "UNCHECKED_CAST")
         override fun onReceive(context: Context, intent: Intent) {
-            when (intent.getStringExtra("Type")) {
-                "ReceiveClass" -> {
-                    val requestId = intent.getLongExtra("RequestId", NO_ANCHOR_REQUEST)
+            when (intent.getStringExtra(EXTRA_TYPE)) {
+                TYPE_RECEIVE_CLASS -> {
+                    val requestId = intent.getLongExtra(EXTRA_REQUEST_ID, NO_ANCHOR_REQUEST)
                     if (!acceptAnchorResponse(requestId)) {
                         "Ignored stale anchor response: $requestId".log()
                         return
                     }
                     dataList = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableArrayListExtra("DataList", Data::class.java)
+                        intent.getParcelableArrayListExtra(EXTRA_DATA_LIST, Data::class.java)
                     } else {
-                        intent.getParcelableArrayListExtra("DataList")
+                        intent.getParcelableArrayListExtra(EXTRA_DATA_LIST)
                     } ?: arrayListOf()
                     if (dataList.isEmpty()) {
                         "DataList is empty".log()
@@ -191,7 +208,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun registerReceiver() {
-        val filter = IntentFilter("AppTestReceiver")
+        val filter = IntentFilter(ACTION_APP_TEST_RECEIVER)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             appContext.registerReceiver(appTestReceiver, filter, RECEIVER_EXPORTED)
         } else {

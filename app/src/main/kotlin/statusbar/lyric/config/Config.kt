@@ -34,503 +34,516 @@ class Config {
         const val MAX_TIMEOUT_RESTORE_SECONDS = 60
     }
 
-    var config: ConfigStore
+    private var configReader: ConfigReader
+    private var configWriter: ConfigWriter?
 
     constructor(sharedPreferences: SharedPreferences?) {
-        config = ConfigTools(sharedPreferences)
+        val store = ConfigTools(sharedPreferences)
+        configReader = store
+        configWriter = store
     }
 
     fun attach(sharedPreferences: SharedPreferences?) {
-        config = ConfigTools(sharedPreferences)
+        val store = ConfigTools(sharedPreferences)
+        configReader = store
+        configWriter = store
     }
 
-    fun attachStore(store: ConfigStore) {
-        config = store
+    fun attachStore(store: ConfigReader) {
+        configReader = store
+        configWriter = store as? ConfigWriter
     }
 
     fun update() {
-        config.reload()
+        configReader.reload()
     }
 
     fun clear() {
-        config.clearConfig()
+        requireWriter().clearConfig()
     }
+
+    private fun put(key: String, value: Any) {
+        requireWriter().put(key, value)
+    }
+
+    private fun requireWriter(): ConfigWriter =
+        configWriter ?: error("当前配置源为只读，不能执行写入操作")
 
     var masterSwitch: Boolean
         get() {
-            return config.opt("masterSwitch", false)
+            return configReader.getBoolean("masterSwitch", false)
         }
         set(value) {
-            config.put("masterSwitch", value)
+            put("masterSwitch", value)
         }
     var hideTime: Boolean
         get() {
-            return config.opt("hideTime", true)
+            return configReader.getBoolean("hideTime", true)
         }
         set(value) {
-            config.put("hideTime", value)
+            put("hideTime", value)
         }
     var outLog: Boolean
         get() {
-            return if (BuildConfig.DEBUG) true else config.opt("outlog", false)
+            return if (BuildConfig.DEBUG) true else configReader.getBoolean("outlog", false)
         }
         set(value) {
-            config.put("outlog", value)
+            put("outlog", value)
         }
     var showLauncherIcon: Boolean
         get() {
-            return config.opt("showLauncherIcon", true)
+            return configReader.getBoolean("showLauncherIcon", true)
         }
         set(value) {
-            config.put("showLauncherIcon", value)
+            put("showLauncherIcon", value)
         }
     var hideNotificationIcon: Boolean
         get() {
-            return config.opt("hideNotificationIcon", false)
+            return configReader.getBoolean("hideNotificationIcon", false)
         }
         set(value) {
-            config.put("hideNotificationIcon", value)
+            put("hideNotificationIcon", value)
         }
     var testMode: Boolean
         get() {
-            return config.opt("testMode", false)
+            return configReader.getBoolean("testMode", false)
         }
         set(value) {
-            config.put("testMode", value)
+            put("testMode", value)
         }
     var relaxConditions: Boolean
         get() {
-            return config.opt("relaxConditions", false)
+            return configReader.getBoolean("relaxConditions", false)
         }
         set(value) {
-            config.put("relaxConditions", value)
+            put("relaxConditions", value)
         }
     var textViewClassName: String
         get() {
-            return config.opt("textViewClassName", "")
+            return configReader.getString("textViewClassName", "")
         }
         set(value) {
-            config.put("textViewClassName", value)
+            put("textViewClassName", value)
         }
     var textViewId: Int
         get() {
-            return config.opt("textViewId", 0)
+            return configReader.getInt("textViewId", 0)
         }
         set(value) {
-            config.put("textViewId", value)
+            put("textViewId", value)
         }
     var parentViewClassName: String
         get() {
-            return config.opt("parentViewClassName", "")
+            return configReader.getString("parentViewClassName", "")
         }
         set(value) {
-            config.put("parentViewClassName", value)
+            put("parentViewClassName", value)
         }
     var parentViewId: Int
         get() {
-            return config.opt("parentViewId", 0)
+            return configReader.getInt("parentViewId", 0)
         }
         set(value) {
-            config.put("parentViewId", value)
+            put("parentViewId", value)
         }
     var index: Int
         get() {
-            return config.opt("index", 0)
+            return configReader.getInt("index", 0)
         }
         set(value) {
-            config.put("index", value)
+            put("index", value)
         }
     var textSize: Float
         get() {
-            return config.opt("textSize", 0f)
+            return configReader.getFloat("textSize", 0f)
         }
         set(value) {
-            config.put("textSize", value)
+            put("textSize", value)
         }
 
     var lyricSize: Int
         get() {
-            return config.opt("lyricSize", 0)
+            return configReader.getInt("lyricSize", 0)
         }
         set(value) {
-            config.put("lyricSize", value)
+            put("lyricSize", value)
         }
     var lyricStartMargins: Int
         get() {
-            return config.opt("lyricStart", if (mHyperOSTexture) 20 else 8)
+            return configReader.getInt("lyricStart", if (mHyperOSTexture) 20 else 8)
         }
         set(value) {
-            config.put("lyricStart", value)
+            put("lyricStart", value)
         }
     var lyricTopMargins: Int
         get() {
-            return config.opt("lyricTop", 0)
+            return configReader.getInt("lyricTop", 0)
         }
         set(value) {
-            config.put("lyricTop", value)
+            put("lyricTop", value)
         }
     var lyricEndMargins: Int
         get() {
-            return config.opt("lyricEnd", if (mHyperOSTexture) 20 else 10)
+            return configReader.getInt("lyricEnd", if (mHyperOSTexture) 20 else 10)
         }
         set(value) {
-            config.put("lyricEnd", value)
+            put("lyricEnd", value)
         }
     var lyricBottomMargins: Int
         get() {
-            return config.opt("lyricBottom", 0)
+            return configReader.getInt("lyricBottom", 0)
         }
         set(value) {
-            config.put("lyricBottom", value)
+            put("lyricBottom", value)
         }
     var iconTopMargins: Int
         get() {
-            return config.opt("iconTop", 0)
+            return configReader.getInt("iconTop", 0)
         }
         set(value) {
-            config.put("iconTop", value)
+            put("iconTop", value)
         }
     var iconStartMargins: Int
         get() {
-            return config.opt("iconStart", if (mHyperOSTexture) 20 else 0)
+            return configReader.getInt("iconStart", if (mHyperOSTexture) 20 else 0)
         }
         set(value) {
-            config.put("iconStart", value)
+            put("iconStart", value)
         }
     var iconBottomMargins: Int
         get() {
-            return config.opt("iconBottom", 0)
+            return configReader.getInt("iconBottom", 0)
         }
         set(value) {
-            config.put("iconBottom", value)
+            put("iconBottom", value)
         }
     var lyricWidth: Int
         get() {
-            return config.opt("lyricWidth", 0)
+            return configReader.getInt("lyricWidth", 0)
         }
         set(value) {
-            config.put("lyricWidth", value)
+            put("lyricWidth", value)
         }
     var fixedLyricWidth: Boolean
         get() {
-            return config.opt("fixedLyricWidth", false)
+            return configReader.getBoolean("fixedLyricWidth", false)
         }
         set(value) {
-            config.put("fixedLyricWidth", value)
+            put("fixedLyricWidth", value)
         }
     var lyricColor: String
         get() {
-            return config.opt("lyricColor", "")
+            return configReader.getString("lyricColor", "")
         }
         set(value) {
-            config.put("lyricColor", value)
+            put("lyricColor", value)
         }
     var lyricGradientColor: String
         get() {
-            return config.opt("lyricGradientColor", "")
+            return configReader.getString("lyricGradientColor", "")
         }
         set(value) {
-            config.put("lyricGradientColor", value)
+            put("lyricGradientColor", value)
         }
     var lyricBackgroundColor: String
         get() {
-            return config.opt("lyricBackgroundColor", "#00000000")
+            return configReader.getString("lyricBackgroundColor", "#00000000")
         }
         set(value) {
-            config.put("lyricBackgroundColor", value)
+            put("lyricBackgroundColor", value)
         }
     var lyricBackgroundRadius: Int
         get() {
-            return config.opt("lyricBackgroundRadius", 0)
+            return configReader.getInt("lyricBackgroundRadius", 0)
         }
         set(value) {
-            config.put("lyricBackgroundRadius", value)
+            put("lyricBackgroundRadius", value)
         }
     var iconColor: String
         get() {
-            return config.opt("iconColor", "")
+            return configReader.getString("iconColor", "")
         }
         set(value) {
-            config.put("iconColor", value)
+            put("iconColor", value)
         }
     var iconBgColor: String
         get() {
-            return config.opt("iconBgColor", "")
+            return configReader.getString("iconBgColor", "")
         }
         set(value) {
-            config.put("iconBgColor", value)
+            put("iconBgColor", value)
         }
     var limitVisibilityChange: Boolean
         get() {
-            return config.opt("limitVisibilityChange", true)
+            return configReader.getBoolean("limitVisibilityChange", true)
         }
         set(value) {
-            config.put("limitVisibilityChange", value)
+            put("limitVisibilityChange", value)
         }
     var timeoutRestore: Boolean
         get() {
-            return config.opt("timeoutRestore", true)
+            return configReader.getBoolean("timeoutRestore", true)
         }
         set(value) {
-            config.put("timeoutRestore", value)
+            put("timeoutRestore", value)
         }
     var timeoutRestoreSeconds: Int
         get() {
-            return config.opt("timeoutRestoreSeconds", DEFAULT_TIMEOUT_RESTORE_SECONDS)
+            return configReader.getInt("timeoutRestoreSeconds", DEFAULT_TIMEOUT_RESTORE_SECONDS)
                 .coerceIn(MIN_TIMEOUT_RESTORE_SECONDS, MAX_TIMEOUT_RESTORE_SECONDS)
         }
         set(value) {
-            config.put(
+            put(
                 "timeoutRestoreSeconds",
                 value.coerceIn(MIN_TIMEOUT_RESTORE_SECONDS, MAX_TIMEOUT_RESTORE_SECONDS)
             )
         }
     var longClickStatusBarStop: Boolean
         get() {
-            return config.opt("longClickStatusBarStop", false)
+            return configReader.getBoolean("longClickStatusBarStop", false)
         }
         set(value) {
-            config.put("longClickStatusBarStop", value)
+            put("longClickStatusBarStop", value)
         }
     var lyricLetterSpacing: Int
         get() {
-            return config.opt("lyricLetterSpacing", 0)
+            return configReader.getInt("lyricLetterSpacing", 0)
         }
         set(value) {
-            config.put("lyricLetterSpacing", value)
+            put("lyricLetterSpacing", value)
         }
     var lyricStrokeWidth: Int
         get() {
-            return config.opt("lyricStrokeWidth", 0)
+            return configReader.getInt("lyricStrokeWidth", 0)
         }
         set(value) {
-            config.put("lyricStrokeWidth", value)
+            put("lyricStrokeWidth", value)
         }
     var lyricSpeed: Int
         get() {
-            return config.opt("lyricSpeed", 1)
+            return configReader.getInt("lyricSpeed", 1)
         }
         set(value) {
-            config.put("lyricSpeed", value)
+            put("lyricSpeed", value)
         }
     var iconSwitch: Boolean
         get() {
-            return config.opt("iconSwitch", false)
+            return configReader.getBoolean("iconSwitch", false)
         }
         set(value) {
-            config.put("iconSwitch", value)
+            put("iconSwitch", value)
         }
     var iconSize: Int
         get() {
-            return config.opt("iconSize", 0)
+            return configReader.getInt("iconSize", 0)
         }
         set(value) {
-            config.put("iconSize", value)
+            put("iconSize", value)
         }
     var forceTheIconToBeDisplayed: Boolean
         get() {
-            return config.opt("forceTheIconToBeDisplayed", false)
+            return configReader.getBoolean("forceTheIconToBeDisplayed", false)
         }
         set(value) {
-            config.put("forceTheIconToBeDisplayed", value)
+            put("forceTheIconToBeDisplayed", value)
         }
     var lyricAnimation: Int
         get() {
-            return config.opt("lyricAnimation", 1)
+            return configReader.getInt("lyricAnimation", 1)
         }
         set(value) {
-            config.put("lyricAnimation", value)
+            put("lyricAnimation", value)
         }
     var lyricInterpolator: Int
         get() {
-            return config.opt("lyricInterpolator", 3)
+            return configReader.getInt("lyricInterpolator", 3)
         }
         set(value) {
-            config.put("lyricInterpolator", value)
+            put("lyricInterpolator", value)
         }
     var animationDuration: Int
         get() {
-            return config.opt("animationDuration", 500)
+            return configReader.getInt("animationDuration", 500)
         }
         set(value) {
-            config.put("animationDuration", value)
+            put("animationDuration", value)
         }
     var hideLyricWhenLockScreen: Boolean
         get() {
-            return config.opt("hideLyricWhenLockScreen", true)
+            return configReader.getBoolean("hideLyricWhenLockScreen", true)
         }
         set(value) {
-            config.put("hideLyricWhenLockScreen", value)
+            put("hideLyricWhenLockScreen", value)
         }
     var hideCarrier: Boolean
         get() {
-            return config.opt("hideCarrier", false)
+            return configReader.getBoolean("hideCarrier", false)
         }
         set(value) {
-            config.put("hideCarrier", value)
+            put("hideCarrier", value)
         }
     var dynamicLyricSpeed: Boolean
         get() {
-            return config.opt("dynamicLyricSpeed", false)
+            return configReader.getBoolean("dynamicLyricSpeed", false)
         }
         set(value) {
-            config.put("dynamicLyricSpeed", value)
+            put("dynamicLyricSpeed", value)
         }
     var clickStatusBarToHideLyric: Boolean
         get() {
-            return config.opt("clickStatusBarToHideLyric", false)
+            return configReader.getBoolean("clickStatusBarToHideLyric", false)
         }
         set(value) {
-            config.put("clickStatusBarToHideLyric", value)
+            put("clickStatusBarToHideLyric", value)
         }
 
     var mMiuiHideNetworkSpeed: Boolean
         get() {
-            return config.opt("mMiuiHideNetworkSpeed", false)
+            return configReader.getBoolean("mMiuiHideNetworkSpeed", false)
         }
         set(value) {
-            config.put("mMiuiHideNetworkSpeed", value)
+            put("mMiuiHideNetworkSpeed", value)
         }
     var slideStatusBarCutSongs: Boolean
         get() {
-            return config.opt("slideStatusBarCutSongs", false)
+            return configReader.getBoolean("slideStatusBarCutSongs", false)
         }
         set(value) {
-            config.put("slideStatusBarCutSongs", value)
+            put("slideStatusBarCutSongs", value)
         }
     var slideStatusBarCutSongsXRadius: Int
         get() {
-            return config.opt("slideStatusBarCutSongsXRadius", 150)
+            return configReader.getInt("slideStatusBarCutSongsXRadius", 150)
         }
         set(value) {
-            config.put("slideStatusBarCutSongsXRadius", value)
+            put("slideStatusBarCutSongsXRadius", value)
         }
     var slideStatusBarCutSongsYRadius: Int
         get() {
-            return config.opt("slideStatusBarCutSongsYRadius", 25)
+            return configReader.getInt("slideStatusBarCutSongsYRadius", 25)
         }
         set(value) {
-            config.put("slideStatusBarCutSongsYRadius", value)
+            put("slideStatusBarCutSongsYRadius", value)
         }
     var mMiuiPadOptimize: Boolean
         get() {
-            return config.opt("mMiuiPadOptimize", false)
+            return configReader.getBoolean("mMiuiPadOptimize", false)
         }
         set(value) {
-            config.put("mMiuiPadOptimize", value)
+            put("mMiuiPadOptimize", value)
         }
     var mHyperOSTexture: Boolean
         get() {
-            return config.opt("mHyperOSTexture", false)
+            return configReader.getBoolean("mHyperOSTexture", false)
         }
         set(value) {
-            config.put("mHyperOSTexture", value)
+            put("mHyperOSTexture", value)
         }
     var mHyperOSTextureRadio: Int
         get() {
-            return config.opt("mHyperOSTextureRadio", 25)
+            return configReader.getInt("mHyperOSTextureRadio", 25)
         }
         set(value) {
-            config.put("mHyperOSTextureRadio", value)
+            put("mHyperOSTextureRadio", value)
         }
     var mHyperOSTextureCorner: Int
         get() {
-            return config.opt("mHyperOSTextureCorner", 32)
+            return configReader.getInt("mHyperOSTextureCorner", 32)
         }
         set(value) {
-            config.put("mHyperOSTextureCorner", value)
+            put("mHyperOSTextureCorner", value)
         }
     var mHyperOSTextureBgColor: String
         get() {
-            return config.opt("mHyperOSTextureBgColor", "#15818181")
+            return configReader.getString("mHyperOSTextureBgColor", "#15818181")
         }
         set(value) {
-            config.put("mHyperOSTextureBgColor", value)
+            put("mHyperOSTextureBgColor", value)
         }
     var titleSwitch: Boolean
         get() {
-            return config.opt("titleSwitch", true)
+            return configReader.getBoolean("titleSwitch", true)
         }
         set(value) {
-            config.put("titleSwitch", value)
+            put("titleSwitch", value)
         }
     var titleDelayDuration: Int
         get() {
-            return config.opt("title_delay_duration", 3000)
+            return configReader.getInt("title_delay_duration", 3000)
         }
         set(value) {
-            config.put("title_delay_duration", value)
+            put("title_delay_duration", value)
         }
     var titleColorAndTransparency: String
         get() {
-            return config.opt("titleColorAndTransparency", "#000000")
+            return configReader.getString("titleColorAndTransparency", "#000000")
         }
         set(value) {
-            config.put("titleColorAndTransparency", value)
+            put("titleColorAndTransparency", value)
         }
     var titleBackgroundRadius: Int
         get() {
-            return config.opt("titleBackgroundRadius", 50)
+            return configReader.getInt("titleBackgroundRadius", 50)
         }
         set(value) {
-            config.put("titleBackgroundRadius", value)
+            put("titleBackgroundRadius", value)
         }
     var titleBackgroundStrokeWidth: Int
         get() {
-            return config.opt("titleBackgroundStrokeWidth", 0)
+            return configReader.getInt("titleBackgroundStrokeWidth", 0)
         }
         set(value) {
-            config.put("titleBackgroundStrokeWidth", value)
+            put("titleBackgroundStrokeWidth", value)
         }
     var titleBackgroundStrokeColorAndTransparency: String
         get() {
-            return config.opt("titleBackgroundStrokeColorAndTransparency", "#FFFFFF")
+            return configReader.getString("titleBackgroundStrokeColorAndTransparency", "#FFFFFF")
         }
         set(value) {
-            config.put("titleBackgroundStrokeColorAndTransparency", value)
+            put("titleBackgroundStrokeColorAndTransparency", value)
         }
     var titleShowWithSameLyric: Boolean
         get() {
-            return config.opt("titleShowWithSameLyric", false)
+            return configReader.getBoolean("titleShowWithSameLyric", false)
         }
         set(value) {
-            config.put("titleShowWithSameLyric", value)
+            put("titleShowWithSameLyric", value)
         }
     var titleGravity: Int
         get() {
-            return config.opt("titleGravity", 0)
+            return configReader.getInt("titleGravity", 0)
         }
         set(value) {
-            config.put("titleGravity", value)
+            put("titleGravity", value)
         }
     var changeAllIcons: String
         get() {
-            return config.opt("changeAllIcons", "")
+            return configReader.getString("changeAllIcons", "")
         }
         set(value) {
-            config.put("changeAllIcons", value)
+            put("changeAllIcons", value)
         }
     var viewLocation: Int
         get() {
-            return config.opt("viewLocation", 0)
+            return configReader.getInt("viewLocation", 0)
         }
         set(value) {
-            config.put("viewLocation", value)
+            put("viewLocation", value)
         }
     var automateFocusedNotice: Boolean
         get() {
-            return config.opt("automateFocusedNotice", true)
+            return configReader.getBoolean("automateFocusedNotice", true)
         }
         set(value) {
-            config.put("automateFocusedNotice", value)
+            put("automateFocusedNotice", value)
         }
 
     var pageRatio: Float
         get() {
-            return config.opt("pageRatio", 0.5f)
+            return configReader.getFloat("pageRatio", 0.5f)
         }
         set(value) {
-            config.put("pageRatio", value)
+            put("pageRatio", value)
         }
 
     private val defIconHashMap by lazy {

@@ -31,7 +31,6 @@ import android.content.IntentFilter
 import android.graphics.Color
 import android.os.Build
 import android.view.Gravity
-import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.github.kyuubiran.ezxhelper.EzXHelper.moduleRes
@@ -42,19 +41,24 @@ import statusbar.lyric.R
 import statusbar.lyric.config.XposedOwnSP.config
 import statusbar.lyric.data.Data
 import statusbar.lyric.hook.BaseHook
+import statusbar.lyric.runtime.test.AnchorCandidateDetector
+import statusbar.lyric.runtime.test.AnchorCandidateSignature
+import statusbar.lyric.runtime.test.AnchorTestProtocol.ACTION_TEST_RECEIVER
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_DATA
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_REQUEST_ID
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_TYPE
+import statusbar.lyric.runtime.test.AnchorTestProtocol.NO_REQUEST_ID
+import statusbar.lyric.runtime.test.AnchorTestProtocol.TYPE_GET_CLASS
+import statusbar.lyric.runtime.test.AnchorTestProtocol.TYPE_SHOW_VIEW
 import statusbar.lyric.tools.ActivityTestTools.receiveClass
 import statusbar.lyric.tools.LogTools.log
 import statusbar.lyric.tools.LyricViewTools.hideView
 import statusbar.lyric.tools.LyricViewTools.showView
-import statusbar.lyric.tools.Tools.dispose
 import statusbar.lyric.tools.Tools.goMainThread
-import java.text.SimpleDateFormat
-import java.time.LocalDateTime
-import java.util.Locale
 
 class SystemUITest : BaseHook() {
     private lateinit var hook: XC_MethodHook.Unhook
-    private var lastTime: Int = 0
+    private val candidateDetector = AnchorCandidateDetector()
     lateinit var context: Context
     lateinit var lastView: TextView
     var lastViewId = 0
@@ -81,11 +85,11 @@ class SystemUITest : BaseHook() {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     context.registerReceiver(
                         TestReceiver(),
-                        IntentFilter("TestReceiver"),
+                        IntentFilter(ACTION_TEST_RECEIVER),
                         Context.RECEIVER_EXPORTED
                     )
                 } else {
-                    context.registerReceiver(TestReceiver(), IntentFilter("TestReceiver"))
+                    context.registerReceiver(TestReceiver(), IntentFilter(ACTION_TEST_RECEIVER))
                 }
                 moduleRes.getString(R.string.start_hooking_text_view).log()
                 hook()
@@ -94,123 +98,65 @@ class SystemUITest : BaseHook() {
         }
     }
 
+    @SuppressLint("DiscouragedApi")
     private fun hook() {
+        candidateDetector.start(config.relaxConditions)
         hook = TextView::class.java.methodFinder().filterByName("onDraw").first().createHook {
             after { hookParam ->
-                canHook {
-                    val view = (hookParam.thisObject as TextView)
-                    val className = hookParam.thisObject::class.java.name
-                    val text = view.text.toString().dispose()
-                    text.isTimeSame {
-                        if (className.filterClassName()) {
-                            view.filterView {
-                                val parentView = (view.parent as LinearLayout)
-                                val newData = Data(
-                                    className,
-                                    view.id,
-                                    parentView::class.java.name,
-                                    parentView.id,
-                                    false,
-                                    0,
-                                    view.textSize,
-                                    context.resources.getResourceEntryName(view.id)
-                                )
-                                var index = 0
-                                val exists = dataHashMap.values.any { data ->
-                                    if (data.textViewClassName == className
-                                        && data.textViewId == view.id
-                                        && data.parentViewClassName == parentView::class.java.name
-                                        && data.parentViewId == parentView.id
-                                        && data.textSize == view.textSize
-                                        && data.idName == context.resources.getResourceEntryName(
-                                            view.id
-                                        )
-                                    ) {
-                                        index += 1
-                                        true
-                                    } else {
-                                        false
-                                    }
-                                }
-                                if (!exists) {
-                                    newData.index = index
-                                    dataHashMap[view] = newData
-                                    moduleRes.getString(R.string.first_filter)
-                                        .format(newData, dataHashMap.size).log()
-                                }
-                            }
-                        }
-                    }
+                if (!candidateDetector.isCollectionActive()) {
+                    hook.unhook()
+                    return@after
                 }
-            }
-        }
-    }
 
-    private fun String.isTimeSame(callback: () -> Unit) {
-        val timeFormat = arrayOf(
-            SimpleDateFormat("H:mm", Locale.getDefault()),
-            SimpleDateFormat("h:mm", Locale.getDefault())
-        )
-        val nowTime = System.currentTimeMillis()
-        timeFormat.forEach {
-            if (it.format(nowTime).toRegex().containsMatchIn(this)) {
-                callback()
-                return
-            }
-        }
-        if (config.relaxConditions) {
-            if (this.contains("周")) {
-                callback()
-                return
-            }
-            if (this.contains("月")) {
-                callback()
-                return
-            }
-            if (this.contains("日")) {
-                callback()
-                return
-            }
-        }
-    }
+                val view = hookParam.thisObject as? TextView ?: return@after
+                if (dataHashMap.containsKey(view)) return@after
+                val parentView = view.parent as? LinearLayout ?: return@after
+                val className = view.javaClass.name
+                if (!candidateDetector.isCandidateText(view.text) ||
+                    !candidateDetector.isCandidateClass(className)
+                ) return@after
 
-    private fun String.filterClassName(): Boolean {
-        if (config.relaxConditions) return true
-        val filterList = arrayListOf("controlcenter", "image", "keyguard")
-        filterList.forEach {
-            if (contains(it, true)) return false
-        }
-        return this != TextView::class.java.name
-    }
+                val clockContainerId = context.resources.getIdentifier(
+                    "clock_container",
+                    "id",
+                    context.packageName
+                )
+                if (parentView.id == clockContainerId) return@after
 
-    @SuppressLint("DiscouragedApi")
-    private fun View.filterView(function: () -> Unit) {
-        if (this.parent is LinearLayout) {
-            val parentView = (this.parent as LinearLayout)
-            val id = context.resources.getIdentifier("clock_container", "id", context.packageName)
-            if (parentView.id != id) {
-                function()
+                val idName = runCatching {
+                    if (view.id == android.view.View.NO_ID) ""
+                    else context.resources.getResourceEntryName(view.id)
+                }.getOrDefault("")
+                val signature = AnchorCandidateSignature(
+                    textViewClassName = className,
+                    textViewId = view.id,
+                    parentViewClassName = parentView.javaClass.name,
+                    parentViewId = parentView.id,
+                    textSize = view.textSize,
+                    idName = idName
+                )
+                val newData = Data(
+                    signature.textViewClassName,
+                    signature.textViewId,
+                    signature.parentViewClassName,
+                    signature.parentViewId,
+                    false,
+                    candidateDetector.nextIndex(signature),
+                    signature.textSize,
+                    signature.idName
+                )
+                dataHashMap[view] = newData
+                moduleRes.getString(R.string.first_filter)
+                    .format(newData, dataHashMap.size).log()
             }
         }
-    }
-
-    private fun canHook(callback: () -> Unit) {
-        val minutes = LocalDateTime.now().minute
-        if (lastTime == 0) {
-            lastTime = minutes
-        } else {
-            if (lastTime - minutes == -1) {
-                hook.unhook()
-            }
-        }
-        callback()
     }
 
     inner class TestReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            when (intent.getStringExtra("Type")) {
-                "GetClass" -> {
-                    val requestId = intent.getLongExtra("RequestId", Long.MIN_VALUE)
+            when (intent.getStringExtra(EXTRA_TYPE)) {
+                TYPE_GET_CLASS -> {
+                    val requestId = intent.getLongExtra(EXTRA_REQUEST_ID, NO_REQUEST_ID)
                     if (dataHashMap.isEmpty()) {
                         moduleRes.getString(R.string.no_text_view).log()
                         context.receiveClass(arrayListOf(), requestId)
@@ -221,21 +167,15 @@ class SystemUITest : BaseHook() {
                     }
                 }
 
-                "ShowView" -> {
+                TYPE_SHOW_VIEW -> {
                     val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra("Data", Data::class.java)
+                        intent.getParcelableExtra(EXTRA_DATA, Data::class.java)
                     } else {
-                        @Suppress("DEPRECATION") intent.getParcelableExtra("Data")
+                        @Suppress("DEPRECATION") intent.getParcelableExtra(EXTRA_DATA)
                     }!!
                     goMainThread {
                         dataHashMap.forEach { (textview, da) ->
-                            if (da.textViewClassName == data.textViewClassName
-                                && da.textViewId == data.textViewId
-                                && da.parentViewClassName == data.parentViewClassName
-                                && da.parentViewId == data.parentViewId
-                                && da.textSize == data.textSize
-                                && da.index == data.index
-                            ) {
+                            if (candidateDetector.matches(da, data)) {
                                 if (lastViewId != textview.id) {
                                     if (this@SystemUITest::lastView.isInitialized) {
                                         (lastView.parent as LinearLayout).removeView(testTextView)

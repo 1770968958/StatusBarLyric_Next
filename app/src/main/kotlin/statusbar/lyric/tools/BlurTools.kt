@@ -25,13 +25,15 @@ package statusbar.lyric.tools
 import android.view.View
 
 object BlurTools {
-    private val setBackgroundBlur by lazy {
-        View::class.java.getDeclaredMethod(
-            "setBackgroundBlur",
-            Integer.TYPE,
-            FloatArray::class.java,
-            Array<IntArray>::class.java
-        )
+    private val setBackgroundBlurMethod by lazy {
+        runCatching {
+            View::class.java.getDeclaredMethod(
+                "setBackgroundBlur",
+                Integer.TYPE,
+                FloatArray::class.java,
+                Array<IntArray>::class.java
+            ).apply { isAccessible = true }
+        }.getOrNull()
     }
 
     fun View.setBackgroundBlur(
@@ -39,7 +41,8 @@ object BlurTools {
         cornerRadius: FloatArray,
         blendModes: Array<IntArray>
     ) {
-        setBackgroundBlur.invoke(this, blurRadius, cornerRadius, blendModes)
+        val method = setBackgroundBlurMethod ?: return
+        runCatching { method.invoke(this, blurRadius, cornerRadius, blendModes) }
     }
 
     fun cornerRadius(radius: Float) = floatArrayOf(radius, radius, radius, radius)

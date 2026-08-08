@@ -27,36 +27,43 @@ import android.content.Context
 import android.content.Intent
 import statusbar.lyric.BuildConfig
 import statusbar.lyric.data.Data
+import statusbar.lyric.runtime.test.AnchorTestProtocol.ACTION_APP_TEST_RECEIVER
+import statusbar.lyric.runtime.test.AnchorTestProtocol.ACTION_TEST_RECEIVER
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_DATA
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_DATA_LIST
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_REQUEST_ID
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_TYPE
+import statusbar.lyric.runtime.test.AnchorTestProtocol.SYSTEM_UI_PACKAGE
+import statusbar.lyric.runtime.test.AnchorTestProtocol.TYPE_GET_CLASS
+import statusbar.lyric.runtime.test.AnchorTestProtocol.TYPE_RECEIVE_CLASS
+import statusbar.lyric.runtime.test.AnchorTestProtocol.TYPE_SHOW_VIEW
 import statusbar.lyric.tools.LogTools.log
 
 @SuppressLint("StaticFieldLeak")
 object ActivityTestTools {
-    private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
-    private const val EXTRA_REQUEST_ID = "RequestId"
-
     fun Context.getClass(requestId: Long) {
-        this.sendBroadcast(Intent("TestReceiver").apply {
+        this.sendBroadcast(Intent(ACTION_TEST_RECEIVER).apply {
             setPackage(SYSTEM_UI_PACKAGE)
-            putExtra("Type", "GetClass")
+            putExtra(EXTRA_TYPE, TYPE_GET_CLASS)
             putExtra(EXTRA_REQUEST_ID, requestId)
-            "GetClass".log()
+            TYPE_GET_CLASS.log()
         })
     }
 
     fun Context.receiveClass(dataList: ArrayList<Data>, requestId: Long) {
-        sendBroadcast(Intent("AppTestReceiver").apply {
+        sendBroadcast(Intent(ACTION_APP_TEST_RECEIVER).apply {
             setPackage(BuildConfig.APPLICATION_ID)
-            putExtra("Type", "ReceiveClass")
+            putExtra(EXTRA_TYPE, TYPE_RECEIVE_CLASS)
             putExtra(EXTRA_REQUEST_ID, requestId)
-            putParcelableArrayListExtra("DataList", dataList)
+            putParcelableArrayListExtra(EXTRA_DATA_LIST, dataList)
         })
     }
 
     fun Context.showView(data: Data) {
-        sendBroadcast(Intent("TestReceiver").apply {
+        sendBroadcast(Intent(ACTION_TEST_RECEIVER).apply {
             setPackage(SYSTEM_UI_PACKAGE)
-            putExtra("Type", "ShowView")
-            putExtra("Data", data)
+            putExtra(EXTRA_TYPE, TYPE_SHOW_VIEW)
+            putExtra(EXTRA_DATA, data)
         })
     }
 }

@@ -22,21 +22,28 @@
 
 package statusbar.lyric.config
 
-/**
- * Storage boundary shared by the activity and runtime-specific hook sources.
- */
-interface ConfigStore {
-    val isReadOnly: Boolean
-
+interface ConfigReader {
     fun reload()
 
-    fun <T> opt(key: String, defValue: T): T
+    fun getString(key: String, defaultValue: String): String
+
+    fun getInt(key: String, defaultValue: Int): Int
+
+    fun getLong(key: String, defaultValue: Long): Long
+
+    fun getBoolean(key: String, defaultValue: Boolean): Boolean
+
+    fun getFloat(key: String, defaultValue: Float): Float
 
     fun contains(key: String): Boolean
 
     fun snapshot(): Map<String, Any?>
+}
 
-    fun put(key: String?, any: Any)
+interface ConfigWriter {
+    fun put(key: String, value: Any)
 
     fun clearConfig()
 }
+
+interface ConfigStore : ConfigReader, ConfigWriter
