@@ -23,41 +23,40 @@
 package statusbar.lyric.view
 
 import android.content.Context
-import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Shader
-import android.view.Choreographer
+import android.view.animation.LinearInterpolator
 import android.widget.TextView
 import statusbar.lyric.config.XposedOwnSP.config
+import kotlin.math.ceil
 
-class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCallback {
+class LyricTextView(context: Context) : TextView(context) {
     private var isScrolling = false
     private var textLength = 0f
-    private var viewWidth = 0f
+    private var viewportWidth = 0f
     private var scrollSpeed = 4f
-    private var currentX = 0f
-    private var lastFrameTimeNanos = 0L
-    private var drawText = ""
-
-    private val choreographer: Choreographer
-        get() = Choreographer.getInstance()
 
     private val startScrollRunnable = Runnable {
         if (!shouldScroll()) {
             isScrolling = false
-            currentX = 0f
-            invalidate()
+            translationX = 0f
             return@Runnable
         }
+        val distance = textLength - viewportWidth
+        val pixelsPerSecond = scrollSpeed.coerceAtLeast(MIN_SCROLL_SPEED) * BASE_FRAMES_PER_SECOND
+        val durationMillis = (distance / pixelsPerSecond * 1000f).toLong().coerceAtLeast(1L)
         isScrolling = true
-        lastFrameTimeNanos = 0L
-        choreographer.postFrameCallback(this)
+        animate()
+            .translationX(-distance)
+            .setDuration(durationMillis)
+            .setInterpolator(LinearInterpolator())
+            .withEndAction { isScrolling = false }
+            .start()
     }
 
     private companion object {
-        const val NANOS_PER_60HZ_FRAME = 16_666_667L
-        const val MAX_FRAME_DELTA = 4f
-        const val SCROLL_FRAME_DELAY_MILLIS = 33L
+        const val BASE_FRAMES_PER_SECOND = 60f
+        const val MIN_SCROLL_SPEED = 0.01f
     }
 
     init {
@@ -69,28 +68,25 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
         super.onDetachedFromWindow()
     }
 
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        viewWidth = w.toFloat()
-        if (drawText.isNotEmpty()) {
-            restartScrollIfNeeded()
-        }
-    }
-
     override fun setText(text: CharSequence, type: BufferType) {
         stopScrollNow()
-        currentX = 0f
-        lastFrameTimeNanos = 0L
-        drawText = text.toString()
-        textLength = paint.measureText(drawText)
+        translationX = 0f
         super.setText(text, type)
+        textLength = paint.measureText(text.toString())
+        val params = layoutParams
+        if (params != null) {
+            val desiredWidth = ceil(textLength + compoundPaddingLeft + compoundPaddingRight).toInt()
+            if (params.width != desiredWidth) {
+                params.width = desiredWidth
+                layoutParams = params
+            }
+        }
         startScrollIfNeeded()
     }
 
     override fun setTextColor(color: Int) {
         if (currentTextColor == color && paint.color == color) return
         super.setTextColor(color)
-        paint.color = color
         invalidate()
     }
 
@@ -107,51 +103,15 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
         invalidate()
     }
 
-    override fun onDraw(canvas: Canvas) {
-        if (drawText.isEmpty()) return
-        val contentHeight = height - paddingTop - paddingBottom
-        val baseline = paddingTop +
-            (contentHeight - paint.descent() - paint.ascent()) / 2f
-        canvas.drawText(drawText, currentX, baseline, paint)
-    }
-
-    private fun updateScrollPosition(frameTimeNanos: Long) {
-        if (!shouldScroll()) {
-            currentX = 0f
-            stopScrollNow()
-            return
-        }
-
-        if (viewWidth - currentX >= textLength) {
-            currentX = viewWidth - textLength
-            stopScrollNow()
-            return
-        }
-
-        val frameDelta = if (lastFrameTimeNanos == 0L) {
-            1f
-        } else {
-            ((frameTimeNanos - lastFrameTimeNanos)
-                .coerceAtLeast(0L)
-                .toFloat() / NANOS_PER_60HZ_FRAME)
-                .coerceIn(0f, MAX_FRAME_DELTA)
-        }
-        lastFrameTimeNanos = frameTimeNanos
-        currentX -= scrollSpeed * frameDelta
-    }
-
-    override fun doFrame(frameTimeNanos: Long) {
-        if (!isScrolling) return
-        updateScrollPosition(frameTimeNanos)
-        invalidate()
-        if (isScrolling) {
-            choreographer.postFrameCallbackDelayed(this, SCROLL_FRAME_DELAY_MILLIS)
-        }
+    fun setViewportWidth(width: Int) {
+        val normalizedWidth = width.coerceAtLeast(0).toFloat()
+        if (viewportWidth == normalizedWidth) return
+        viewportWidth = normalizedWidth
+        restartScrollIfNeeded()
     }
 
     private fun startScrollIfNeeded() {
-        if (textLength <= 0f) return
-        if (viewWidth > 0f && !shouldScroll()) return
+        if (!shouldScroll()) return
         postDelayed(
             startScrollRunnable,
             config.animationDuration + if (config.dynamicLyricSpeed) 200L else 500L
@@ -160,20 +120,18 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
 
     private fun restartScrollIfNeeded() {
         stopScrollNow()
-        currentX = 0f
-        lastFrameTimeNanos = 0L
+        translationX = 0f
         startScrollIfNeeded()
     }
 
     private fun shouldScroll(): Boolean {
-        return viewWidth > 0f && textLength > viewWidth
+        return viewportWidth > 0f && textLength > viewportWidth
     }
 
     fun stopScrollNow() {
         isScrolling = false
-        lastFrameTimeNanos = 0L
         removeCallbacks(startScrollRunnable)
-        choreographer.removeFrameCallback(this)
+        animate().cancel()
     }
 
     fun setScrollSpeed(speed: Float) {

@@ -37,6 +37,8 @@ open class LyricSwitchView(context: Context) : TextSwitcher(context) {
     }
 
     private fun initialize() {
+        clipChildren = true
+        clipToPadding = true
         layoutTransition = LayoutTransition().apply {
             enableTransitionType(LayoutTransition.CHANGING)
         }
@@ -56,11 +58,13 @@ open class LyricSwitchView(context: Context) : TextSwitcher(context) {
     fun setWidth(width: Int) {
         if (appliedWidth == width) return
         appliedWidth = width
-        applyToAllViews {
-            if (it.width != width) {
-                it.width = width
+        layoutParams?.let { params ->
+            if (params.width != width) {
+                params.width = width
+                layoutParams = params
             }
         }
+        applyToAllViews { it.setViewportWidth(width) }
     }
 
     fun setTextColor(color: Int) {
