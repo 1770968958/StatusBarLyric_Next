@@ -49,6 +49,10 @@ import com.hchen.superlyricapi.SuperLyricHelper
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import statusbar.lyric.config.XposedOwnSP
+import statusbar.lyric.reflection.ReflectionUtils.callNoArg
+import statusbar.lyric.reflection.ReflectionUtils.callWithArgs
+import statusbar.lyric.reflection.ReflectionUtils.findMethod
+import statusbar.lyric.reflection.ReflectionUtils.findMethodByName
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.icon.IconBitmapDecoder
@@ -66,7 +70,6 @@ import statusbar.lyric.tools.XiaomiUtils.isXiaomi
 import statusbar.lyric.view.LyricSwitchView
 import statusbar.lyric.view.TitleDialog
 import java.io.File
-import java.lang.reflect.Method
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -1086,28 +1089,6 @@ class Api101SystemUIHook(
         }
     }
 
-    private fun findMethod(clazz: Class<*>, name: String, parameterCount: Int): Method? {
-        var current: Class<*>? = clazz
-        while (current != null) {
-            current.declaredMethods.firstOrNull {
-                it.name == name && it.parameterTypes.size == parameterCount && !it.isBridge
-            }?.let {
-                return it
-            }
-            current = current.superclass
-        }
-        return null
-    }
-
-    private fun findMethodByName(clazz: Class<*>, name: String): Method? {
-        var current: Class<*>? = clazz
-        while (current != null) {
-            current.declaredMethods.firstOrNull { it.name == name && !it.isBridge }?.let { return it }
-            current = current.superclass
-        }
-        return null
-    }
-
     private fun findObjectField(instance: Any?, name: String): Any? {
         var current = instance?.javaClass ?: return null
         while (current != Any::class.java) {
@@ -1120,32 +1101,6 @@ class Api101SystemUIHook(
             current = current.superclass ?: return null
         }
         return null
-    }
-
-    private fun callNoArg(instance: Any, name: String): Any? {
-        var current: Class<*>? = instance.javaClass
-        while (current != null) {
-            current.declaredMethods.firstOrNull { it.name == name && it.parameterCount == 0 }?.let { method ->
-                return runCatching {
-                    method.isAccessible = true
-                    method.invoke(instance)
-                }.getOrNull()
-            }
-            current = current.superclass
-        }
-        return null
-    }
-
-    private fun callWithArgs(instance: Any, name: String, vararg args: Any?) {
-        var current: Class<*>? = instance.javaClass
-        while (current != null) {
-            current.declaredMethods.firstOrNull { it.name == name && it.parameterCount == args.size }?.let { method ->
-                method.isAccessible = true
-                method.invoke(instance, *args)
-                return
-            }
-            current = current.superclass
-        }
     }
 
     private fun findIntField(instance: Any?, name: String): Int? {
