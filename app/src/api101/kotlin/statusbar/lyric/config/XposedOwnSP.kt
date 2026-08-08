@@ -26,8 +26,7 @@ import android.content.SharedPreferences
 import statusbar.lyric.config.Config.Companion.CONFIG_NAME
 
 /**
- * Minimal API 101 configuration bridge. The module entry attaches Remote Preferences
- * after the modern framework calls onModuleLoaded.
+ * API101 配置桥接层。现代框架完成 onModuleLoaded 后，由模块入口挂接 Remote Preferences。
  */
 object XposedOwnSP {
     private val configHolder = Config(null)
@@ -56,7 +55,7 @@ object XposedOwnSP {
     }
 
     /**
-     * Registers a SystemUI-side listener after the framework provides Remote Preferences.
+     * 框架提供 Remote Preferences 后，注册 SystemUI 侧配置监听。
      */
     fun registerOnPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
         preferenceListeners += listener

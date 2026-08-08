@@ -3,7 +3,7 @@ package statusbar.lyric.runtime.style
 import android.graphics.Typeface
 import java.io.File
 
-/** Caches a custom font until its file identity actually changes. */
+/** 缓存自定义字体，仅在字体文件身份实际变化时重新加载。 */
 class TypefaceFileCache {
     private data class FileKey(
         val path: String,

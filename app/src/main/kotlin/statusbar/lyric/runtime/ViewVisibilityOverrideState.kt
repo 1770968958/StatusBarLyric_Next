@@ -4,13 +4,10 @@ import android.view.View
 import java.util.IdentityHashMap
 
 /**
- * Tracks temporary visibility changes made while lyrics are showing.
+ * 记录歌词显示期间由模块施加的临时可见性覆盖。
  *
- * The original visibility is captured when a view is first overridden. If
- * SystemUI requests a different visibility while the override is active, the
- * latest request is remembered and restored when the override ends. Internal
- * writes are marked so the global setVisibility hooks do not mistake module
- * updates for SystemUI requests.
+ * 首次覆盖 View 时保存原始可见性；覆盖期间如果 SystemUI 请求新的可见性，则记录最新请求，
+ * 在覆盖结束时恢复。模块自身写入会单独标记，避免全局 setVisibility Hook 将其误认为 SystemUI 请求。
  */
 class ViewVisibilityOverrideState {
     private data class Entry(
@@ -37,10 +34,9 @@ class ViewVisibilityOverrideState {
     }
 
     /**
-     * Records a visibility request made outside this state holder.
+     * 记录状态管理器之外发起的可见性请求。
      *
-     * @return a replacement visibility when the active hidden override should
-     * remain enforced, or null when the caller should let the request through.
+     * @return 当前隐藏覆盖仍需保持时返回替代可见性；可以放行原请求时返回 null。
      */
     @Synchronized
     fun onVisibilityRequested(

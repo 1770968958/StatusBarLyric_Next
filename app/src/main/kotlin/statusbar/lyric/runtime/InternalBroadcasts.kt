@@ -1,6 +1,6 @@
 package statusbar.lyric.runtime
 
-/** Cross-process control broadcasts used by the legacy SystemUI integration. */
+/** legacy SystemUI 集成使用的跨进程内部控制广播。 */
 object InternalBroadcasts {
     const val ACTION_UPDATE_CONFIG = "statusbar.lyric.action.UPDATE_CONFIG"
     const val PERMISSION_INTERNAL_CONTROL = "statusbar.lyric.permission.INTERNAL_CONTROL"

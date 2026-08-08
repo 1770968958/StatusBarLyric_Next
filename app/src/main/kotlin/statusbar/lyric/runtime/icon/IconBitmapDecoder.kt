@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
 
-/** Shared defensive decoder for lyric icons received as Base64 strings. */
+/** 公共歌词图标 Base64 防御性解码器。 */
 object IconBitmapDecoder {
     private const val MAX_BASE64_CHARS = 700_000
     private const val MAX_COMPRESSED_BYTES = 524_288

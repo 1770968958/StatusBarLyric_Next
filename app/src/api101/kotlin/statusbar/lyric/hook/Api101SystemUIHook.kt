@@ -84,8 +84,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * API 101 SystemUI implementation. It keeps framework interaction in API 101
- * hooks while reusing the module's normal lyric presentation components.
+ * API101 的 SystemUI 实现。框架交互保留在 API101 Hook 层，歌词运行逻辑复用公共组件。
  */
 class Api101SystemUIHook(
     private val module: XposedModule

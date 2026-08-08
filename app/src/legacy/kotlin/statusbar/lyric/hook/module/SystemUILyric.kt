@@ -226,7 +226,7 @@ class SystemUILyric : BaseHook() {
         TitleDialog(context)
     }
 
-    //////////////////////////////Hook//////////////////////////////////////
+    //////////////////////////////钩子逻辑//////////////////////////////////////
     private var defaultDisplay: Any? = null
     private var centralSurfacesImpl: Any? = null
     private var notificationIconAreaRef: WeakReference<View>? = null

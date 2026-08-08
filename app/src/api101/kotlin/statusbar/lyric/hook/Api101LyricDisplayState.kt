@@ -29,8 +29,7 @@ import statusbar.lyric.view.LyricSwitchView
 import java.lang.ref.WeakReference
 
 /**
- * Keeps the API 101 lyric and matched clock visibility state together so
- * visibility interception never applies to unrelated SystemUI views.
+ * 集中保存 API101 歌词与目标时钟的可见性状态，避免可见性拦截误作用到无关的 SystemUI View。
  */
 class Api101LyricDisplayState(
     private val visibilityOverrides: ViewVisibilityOverrideState

@@ -34,8 +34,8 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * API 101 module apps are not self-hooked. A bound framework service proves that
- * the module is active and provides the writable side of Remote Preferences.
+ * API101 模块应用不再通过自 Hook 判断激活状态。框架服务绑定成功即表示模块已激活，
+ * 同时提供 Remote Preferences 的可写端。
  */
 object ModuleRuntimeBridge {
     private const val TAG = "StatusBarLyric/API101"
@@ -197,8 +197,8 @@ object ModuleRuntimeBridge {
     }
 
     /**
-     * The module application owns configuration. A delta sync keeps Remote
-     * Preferences authoritative without clearing and rewriting unchanged keys.
+     * 模块应用持有配置源。通过增量同步保持 Remote Preferences 与本地配置一致，
+     * 避免清空并重复写入未发生变化的键。
      */
     private fun synchronizeRemoteValues(local: SharedPreferences, remote: SharedPreferences) {
         val localSnapshot = local.all

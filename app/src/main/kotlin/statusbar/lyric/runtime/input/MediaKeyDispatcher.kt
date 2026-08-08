@@ -4,7 +4,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.view.KeyEvent
 
-/** Dispatches media key events through AudioManager without spawning shell processes. */
+/** 通过 AudioManager 分发媒体按键，避免启动 shell 进程。 */
 class MediaKeyDispatcher(context: Context) {
     private val audioManager = context.getSystemService(AudioManager::class.java)
 

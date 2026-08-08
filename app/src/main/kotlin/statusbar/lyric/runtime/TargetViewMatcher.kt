@@ -7,7 +7,7 @@ import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 import kotlin.math.abs
 
-/** Immutable description of the TextView anchor recorded by SystemUI test mode. */
+/** SystemUI 测试模式记录的 TextView 锚点不可变描述。 */
 data class TargetViewSpec(
     val textViewClassName: String,
     val textViewId: Int,
@@ -30,11 +30,10 @@ data class TargetViewMatch(
 )
 
 /**
- * Matches the configured SystemUI TextView without relying on one process-global index.
+ * 匹配已配置的 SystemUI TextView，不依赖进程级全局 index。
  *
- * Candidate indices are tracked independently for each concrete parent ViewGroup. When a
- * candidate detaches its slot is removed and later indices are compacted, so a replacement
- * View can reuse the same logical index after a SystemUI reinflate.
+ * 每个具体父 ViewGroup 独立维护候选序号；候选 View detach 后移除对应槽位并压缩后续序号，
+ * 因此 SystemUI 重新 inflate 后的新 View 可以继续复用原来的逻辑序号。
  */
 class TargetViewMatcher(
     private val textSizeEpsilonPx: Float = DEFAULT_TEXT_SIZE_EPSILON_PX

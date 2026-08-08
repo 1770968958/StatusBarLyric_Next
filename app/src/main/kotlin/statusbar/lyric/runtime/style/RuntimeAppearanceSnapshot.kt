@@ -3,7 +3,7 @@ package statusbar.lyric.runtime.style
 import android.graphics.Color
 import statusbar.lyric.config.Config
 
-/** Parsed, immutable appearance configuration used by SystemUI runtime code. */
+/** SystemUI Runtime 使用的已解析不可变外观配置快照。 */
 data class RuntimeAppearanceSnapshot(
     val lyricSizePx: Int,
     val lyricStartMargin: Int,

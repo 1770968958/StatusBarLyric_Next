@@ -17,9 +17,8 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 /**
- * Shared anchor-discovery rules for the legacy and API101 SystemUI test hooks.
- * Hook installation stays flavor-specific; this class owns the hot-path filtering,
- * clock-token cache and stable duplicate-candidate indexing.
+ * legacy 与 API101 SystemUI 测试 Hook 共用的锚点发现规则。
+ * Hook 安装仍由各 flavor 负责；本类统一处理热路径过滤、时钟 token 缓存和稳定的重复候选序号。
  */
 class AnchorCandidateDetector(
     private val collectionDurationNanos: Long = COLLECTION_DURATION_MILLIS * NANOS_PER_MILLI

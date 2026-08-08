@@ -2,7 +2,7 @@ package statusbar.lyric.runtime.scheduler
 
 import android.os.Handler
 
-/** A single reusable Handler task whose pending schedule can be reset or cancelled. */
+/** 可复用的单一 Handler 任务，支持重置等待时间或取消调度。 */
 class ResettableHandlerTask(
     private val handler: Handler,
     action: () -> Unit

@@ -15,8 +15,8 @@ package statusbar.lyric.tools
 import java.lang.reflect.Method
 
 /**
- * Cached access to Android's hidden SystemProperties.get(String) API.
- * Capability discovery happens once; missing/blocked APIs degrade to an empty string.
+ * 缓存访问 Android 隐藏的 SystemProperties.get(String) API。
+ * 能力探测只执行一次；API 不存在或被限制时降级为空字符串。
  */
 object SystemPropertiesReader {
     private val getMethod: Method? by lazy(LazyThreadSafetyMode.PUBLICATION) {

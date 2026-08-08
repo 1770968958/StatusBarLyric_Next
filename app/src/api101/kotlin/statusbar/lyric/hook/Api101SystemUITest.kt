@@ -55,7 +55,7 @@ import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * API 101 replacement for the Legacy anchor discovery hook.
+ * API101 的状态栏锚点发现实现，与 legacy 测试模式使用同一套候选判定规则。
  */
 class Api101SystemUITest(
     private val module: XposedModule

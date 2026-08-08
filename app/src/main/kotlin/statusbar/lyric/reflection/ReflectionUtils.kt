@@ -5,7 +5,7 @@ import java.lang.reflect.Method
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
 
-/** Cached reflection helpers shared by runtime-specific SystemUI integrations. */
+/** 各 Runtime SystemUI 实现共用的反射查找与缓存工具。 */
 object ReflectionUtils {
     private const val NULL_REFERENCE_SCORE = 100
     private const val REFERENCE_ASSIGNABLE_BASE_SCORE = 10

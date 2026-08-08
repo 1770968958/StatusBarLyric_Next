@@ -131,7 +131,7 @@ object Tools {
                     }
                     outputStream.close()
                 } catch (_: Exception) {
-                    // Su shell command failed
+                    // Su shell 命令执行失败
                     Handler(Looper.getMainLooper()).post {
                         Toast.makeText(MainActivity.appContext, "Root permissions required!!", Toast.LENGTH_SHORT).show()
                     }
@@ -140,7 +140,7 @@ object Tools {
                 Runtime.getRuntime().exec(command)
             }
         } catch (_: Throwable) {
-            // Shell command failed
+            // Shell 命令执行失败
         }
     }
 
