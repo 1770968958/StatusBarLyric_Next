@@ -26,7 +26,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.PointF
@@ -37,7 +36,6 @@ import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
@@ -55,6 +53,7 @@ import io.github.libxposed.api.XposedModule
 import statusbar.lyric.config.XposedOwnSP
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
+import statusbar.lyric.runtime.icon.IconBitmapDecoder
 import statusbar.lyric.tools.BlurTools.cornerRadius
 import statusbar.lyric.tools.BlurTools.setBackgroundBlur
 import statusbar.lyric.tools.LyricViewTools
@@ -68,7 +67,9 @@ import statusbar.lyric.view.LyricSwitchView
 import statusbar.lyric.view.TitleDialog
 import java.io.File
 import java.lang.reflect.Method
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -95,6 +96,10 @@ class Api101SystemUIHook(
     private val systemUiTest = Api101SystemUITest(module)
     private val lyricDisplayState = Api101LyricDisplayState()
     private val targetViewMatcher = TargetViewMatcher()
+    private val iconDecodeGeneration = AtomicLong(0L)
+    private val iconDecodeExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "StatusBarLyric-Api101-IconDecode")
+    }
 
     private var lyricView: LyricSwitchView? = null
     private var lyricLayout: LinearLayout? = null
@@ -174,6 +179,7 @@ class Api101SystemUIHook(
                     playingPublisher = ""
                     pendingLyric = ""
                     pendingDelay = 0
+                    iconDecodeGeneration.incrementAndGet()
                     timeoutRunnable?.let(mainHandler::removeCallbacks)
                     timeoutRunnable = null
                     hideLyric()
@@ -639,6 +645,9 @@ class Api101SystemUIHook(
                         applyConfiguration(source)
                     }
                 }
+                if (isMusicPlaying && lastBase64Icon.isNotBlank()) {
+                    updateIcon(lastBase64Icon, force = true)
+                }
                 if (isMusicPlaying && pendingLyric.isNotEmpty()) {
                     showLyric(pendingLyric, pendingDelay)
                 }
@@ -976,26 +985,42 @@ class Api101SystemUIHook(
         }
     }
 
-    private fun updateIcon(base64Icon: String) {
+    private fun updateIcon(base64Icon: String, force: Boolean = false) {
+        if (!force && base64Icon == lastBase64Icon) return
         lastBase64Icon = base64Icon
-        val icon = iconView ?: return
+        val generation = iconDecodeGeneration.incrementAndGet()
+        val icon = iconView
         if (!XposedOwnSP.config.iconSwitch || base64Icon.isBlank()) {
-            icon.visibility = View.GONE
+            icon?.visibility = View.GONE
             return
         }
-        val bitmap = runCatching {
-            val raw = base64Icon.substringAfter("base64,", base64Icon).trim()
-            if (raw.length > MAX_ICON_BASE64_CHARS) return@runCatching null
-            val bytes = Base64.decode(raw, Base64.DEFAULT)
-            if (bytes.size > MAX_ICON_BYTES) return@runCatching null
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-        }.getOrNull()
-        if (bitmap == null) {
-            icon.visibility = View.GONE
-            return
+        if (icon == null || mountedTarget == null) return
+
+        iconDecodeExecutor.execute {
+            val bitmap = IconBitmapDecoder.decode(base64Icon)
+            mainHandler.post {
+                if (
+                    generation != iconDecodeGeneration.get() ||
+                    lastBase64Icon != base64Icon ||
+                    !isMusicPlaying
+                ) {
+                    bitmap?.recycle()
+                    return@post
+                }
+
+                val currentIcon = iconView
+                if (currentIcon == null || mountedTarget == null) {
+                    bitmap?.recycle()
+                    return@post
+                }
+                if (bitmap == null) {
+                    currentIcon.visibility = View.GONE
+                } else {
+                    currentIcon.setImageBitmap(bitmap)
+                    currentIcon.visibility = View.VISIBLE
+                }
+            }
         }
-        icon.setImageBitmap(bitmap)
-        icon.visibility = View.VISIBLE
     }
 
     private fun parseColor(value: String): Int? {
@@ -1264,8 +1289,6 @@ class Api101SystemUIHook(
         const val MIUI_NOTIFICATION_CALLBACK_CLASS = "com.android.systemui.controlcenter.shade.NotificationHeaderExpandController\$notificationCallback\$1"
         const val FOCUSED_NOTIFICATION_CONTROLLER_CLASS = "com.android.systemui.statusbar.phone.FocusedNotifPromptController"
         const val TITLE_DELAY_MILLIS = 800L
-        const val MAX_ICON_BASE64_CHARS = 700_000
-        const val MAX_ICON_BYTES = 524_288
         const val LONG_CLICK_MILLIS = 500L
         const val TOUCH_MOVE_THRESHOLD = 50f
     }

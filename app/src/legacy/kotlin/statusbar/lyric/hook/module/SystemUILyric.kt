@@ -30,8 +30,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.res.Configuration
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.Point
@@ -44,7 +42,6 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.Message
-import android.util.Base64
 import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.Gravity
@@ -89,6 +86,7 @@ import statusbar.lyric.tools.Tools.isNot
 import statusbar.lyric.tools.Tools.isNotNull
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
+import statusbar.lyric.runtime.icon.IconBitmapDecoder
 import statusbar.lyric.tools.Tools.observableChange
 import statusbar.lyric.tools.Tools.shell
 import statusbar.lyric.tools.XiaomiUtils.isHyperOS
@@ -131,9 +129,12 @@ class SystemUILyric : BaseHook() {
     }
     private var lastBase64Icon: String by observableChange("") { _, newValue ->
         iconDecodeHandler.post {
-            val bitmap = base64ToBitmap(newValue)
+            val bitmap = IconBitmapDecoder.decode(newValue)
             goMainThread {
-                if (lastBase64Icon != newValue) return@goMainThread
+                if (lastBase64Icon != newValue) {
+                    bitmap?.recycle()
+                    return@goMainThread
+                }
                 bitmap.isNotNull {
                     iconView.showView()
                     iconView.setImageBitmap(it)
@@ -171,13 +172,6 @@ class SystemUILyric : BaseHook() {
     private val displayWidth: Int by lazy { displayMetrics.widthPixels }
     private val displayHeight: Int by lazy { displayMetrics.heightPixels }
 
-
-    private companion object {
-        const val MAX_ICON_BASE64_CHARS = 700_000
-        const val MAX_ICON_BYTES = 524_288
-        const val MAX_ICON_SOURCE_DIMENSION = 2_048
-        const val MAX_ICON_DECODED_DIMENSION = 512
-    }
 
     private lateinit var clockView: TextView
     private lateinit var targetView: ViewGroup
@@ -841,38 +835,6 @@ class SystemUILyric : BaseHook() {
                 setText(lyric)
             }
         }
-    }
-
-    private fun base64ToBitmap(base64: String): Bitmap? {
-        if (base64.isBlank()) return null
-
-        return runCatching {
-            val raw = base64.substringAfter("base64,", base64).trim()
-            if (raw.length > MAX_ICON_BASE64_CHARS) return@runCatching null
-
-            val bytes = Base64.decode(raw, Base64.DEFAULT)
-            if (bytes.size > MAX_ICON_BYTES) return@runCatching null
-
-            val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, boundsOptions)
-            if (boundsOptions.outWidth <= 0 || boundsOptions.outHeight <= 0) return@runCatching null
-            if (boundsOptions.outWidth > MAX_ICON_SOURCE_DIMENSION || boundsOptions.outHeight > MAX_ICON_SOURCE_DIMENSION) {
-                return@runCatching null
-            }
-
-            val decodeOptions = BitmapFactory.Options().apply {
-                inSampleSize = calculateIconSampleSize(boundsOptions.outWidth, boundsOptions.outHeight)
-            }
-            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOptions)
-        }.getOrNull()
-    }
-
-    private fun calculateIconSampleSize(width: Int, height: Int): Int {
-        var sampleSize = 1
-        while (width / sampleSize > MAX_ICON_DECODED_DIMENSION || height / sampleSize > MAX_ICON_DECODED_DIMENSION) {
-            sampleSize *= 2
-        }
-        return sampleSize
     }
 
     private fun parseColorList(value: String): List<Int> {
