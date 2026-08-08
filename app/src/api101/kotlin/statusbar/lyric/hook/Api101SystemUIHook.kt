@@ -1062,12 +1062,13 @@ class Api101SystemUIHook(
         titleDisplayTask.schedule(TITLE_DELAY_MILLIS)
     }
 
-    private fun resolveIconBase64(data: SuperLyricData, publisher: String): String {
-        if (!XposedOwnSP.config.iconSwitch) return ""
-        return XposedOwnSP.config.changeAllIcons.ifEmpty {
-            data.base64Icon.orEmpty().ifEmpty { XposedOwnSP.config.getDefaultIcon(publisher) }
-        }
-    }
+    private fun resolveIconBase64(data: SuperLyricData, publisher: String): String =
+        LyricIconResolver.resolve(
+            enabled = XposedOwnSP.config.iconSwitch,
+            overrideIcon = XposedOwnSP.config.changeAllIcons,
+            eventIcon = data.base64Icon,
+            defaultIcon = { XposedOwnSP.config.getDefaultIcon(publisher) }
+        )
 
     private fun updateIcon(base64Icon: String, force: Boolean = false) {
         if (!force && base64Icon == lastBase64Icon) return

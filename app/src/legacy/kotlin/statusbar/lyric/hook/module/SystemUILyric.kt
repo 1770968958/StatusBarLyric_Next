@@ -667,17 +667,13 @@ class SystemUILyric : BaseHook() {
         )
     }
 
-    private fun resolveIconBase64(data: SuperLyricData, publisher: String): String {
-        if (!iconSwitch) return ""
-        return config.changeAllIcons.ifEmpty {
-            val apiIcon = data.base64Icon.orEmpty()
-            if (apiIcon.isNotEmpty()) {
-                apiIcon
-            } else {
-                config.getDefaultIcon(publisher)
-            }
-        }
-    }
+    private fun resolveIconBase64(data: SuperLyricData, publisher: String): String =
+        LyricIconResolver.resolve(
+            enabled = iconSwitch,
+            overrideIcon = config.changeAllIcons,
+            eventIcon = data.base64Icon,
+            defaultIcon = { config.getDefaultIcon(publisher) }
+        )
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     private fun registerSuperLyric(context: Context) {
