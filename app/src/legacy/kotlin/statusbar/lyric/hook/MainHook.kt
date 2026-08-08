@@ -46,7 +46,6 @@ class MainHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
             "com.android.systemui" -> {
                 if (!config.masterSwitch) {
                     moduleRes.getString(R.string.master_off).log()
-                    return
                 }
                 "${BuildConfig.APPLICATION_ID} - ${BuildConfig.VERSION_NAME}(${BuildConfig.VERSION_CODE}[${Locale.getDefault().language}] *${BuildConfig.BUILD_TYPE})".log()
                 if (config.testMode) {
@@ -72,7 +71,6 @@ class MainHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
         EzXHelper.initZygote(startupParam)
         if (!config.masterSwitch) {
             moduleRes.getString(R.string.master_off).log()
-            return
         }
     }
 

@@ -152,6 +152,7 @@ class SystemUILyric : BaseHook() {
     }
     private var canLoad: Boolean = true
     private var isScreenLocked: Boolean = false
+    private var runtimeEnabled: Boolean = config.masterSwitch
     private var iconSwitch: Boolean = config.iconSwitch
 
     @Volatile
@@ -578,7 +579,8 @@ class SystemUILyric : BaseHook() {
     }
 
     private fun canShowLyric(): Boolean {
-        return isMusicPlaying && !FocusNotifyController.isOS1FocusNotifyShowing && !FocusNotifyController.isInteraction
+        return runtimeEnabled && isMusicPlaying &&
+            !FocusNotifyController.isOS1FocusNotifyShowing && !FocusNotifyController.isInteraction
     }
 
     private fun isInFullScreenMode(): Boolean {
@@ -675,7 +677,7 @@ class SystemUILyric : BaseHook() {
         )
 
     private fun handleSuperLyricStop(packageName: String) {
-        if (!isReady) return
+        if (!runtimeEnabled || !isReady) return
         if (playingApp.isNotEmpty() && playingApp != packageName) return
 
         lastLyric = ""
@@ -690,7 +692,7 @@ class SystemUILyric : BaseHook() {
     }
 
     private fun handleSuperLyric(packageName: String, data: SuperLyricData) {
-        if (!isReady) return
+        if (!runtimeEnabled || !isReady) return
 
         val lyricLine = data.lyric ?: return
         val lyric = lyricLine.text
@@ -788,7 +790,7 @@ class SystemUILyric : BaseHook() {
 
     // 适用于直接显示歌词，不需要考虑其他类似焦点通知的状态
     private fun showLyric(lyric: String, delay: Int = 0) {
-        if (!isReady || !isMusicPlaying || lyric.isEmpty() || isScreenLocked) return
+        if (!runtimeEnabled || !isReady || !isMusicPlaying || lyric.isEmpty() || isScreenLocked) return
 
         "Showing LyricView".log()
         goMainThread {
@@ -891,6 +893,17 @@ class SystemUILyric : BaseHook() {
     private fun updateConfig(delay: Long = 0L) {
         "Updating Config".log()
         config.update()
+        val wasEnabled = runtimeEnabled
+        runtimeEnabled = config.masterSwitch
+        if (!runtimeEnabled) {
+            disableRuntime()
+            return
+        }
+        if (!wasEnabled) {
+            lastLyric = ""
+            lastLyricDelay = 0
+            playingApp = ""
+        }
         refreshAppearanceSnapshot()
         goMainThread(delay) {
             val appearance = currentAppearanceSnapshot()
@@ -987,6 +1000,27 @@ class SystemUILyric : BaseHook() {
                 refreshTimeoutRestore()
             } else {
                 timeoutRestoreTask.cancel()
+            }
+        }
+    }
+
+
+    private fun disableRuntime() {
+        isMusicPlaying = false
+        lastLyric = ""
+        lastLyricDelay = 0
+        playingApp = ""
+        lastArtist = ""
+        lastAlbum = ""
+        pendingTitlePublisher = ""
+        pendingTitleData = null
+        timeoutRestoreTask.cancel()
+        titleDisplayTask.cancel()
+        goMainThread {
+            if (isReady) {
+                hideLyric()
+            } else {
+                visibilityOverrides.restoreAll()
             }
         }
     }

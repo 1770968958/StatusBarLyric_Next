@@ -125,6 +125,7 @@ class Api101SystemUIHook(
     private var lastBase64Icon = ""
     private var isMusicPlaying = false
     private var isScreenLocked = false
+    private var runtimeEnabled = XposedOwnSP.config.masterSwitch
     private var lyricShowing = false
     private var notificationIconAreaRef: WeakReference<View>? = null
     private var notificationIconArea: View?
@@ -185,8 +186,19 @@ class Api101SystemUIHook(
     private val configRefreshRunnable = Runnable {
         runCatching {
             XposedOwnSP.config.update()
+            val wasEnabled = runtimeEnabled
+            runtimeEnabled = XposedOwnSP.config.masterSwitch
+            if (!runtimeEnabled) {
+                disableRuntime()
+                return@runCatching
+            }
             refreshAppearanceSnapshot()
             applyConfiguration()
+            if (!wasEnabled) {
+                pendingLyric = ""
+                pendingDelay = 0
+                playingPublisher = ""
+            }
             if (isMusicPlaying && pendingLyric.isNotEmpty()) {
                 showLyric(pendingLyric, pendingDelay)
                 refreshTimeoutRestore()
@@ -208,6 +220,7 @@ class Api101SystemUIHook(
 
             mainHandler.post {
                 runCatching {
+                    if (!runtimeEnabled) return@post
                     val sameLyric = isMusicPlaying &&
                         playingPublisher == packageName &&
                         pendingLyric == lyric &&
@@ -242,6 +255,7 @@ class Api101SystemUIHook(
         override fun onStop(publisher: String?, data: SuperLyricData?) {
             mainHandler.post {
                 runCatching {
+                    if (!runtimeEnabled) return@post
                     if (playingPublisher.isNotEmpty() && playingPublisher != publisher.orEmpty()) return@post
                     isMusicPlaying = false
                     playingPublisher = ""
@@ -267,9 +281,9 @@ class Api101SystemUIHook(
     fun onApplicationAttached(context: Context, classLoader: ClassLoader) {
         mediaKeyDispatcher = MediaKeyDispatcher(context)
         registerConfigObserver()
-        if (!XposedOwnSP.config.masterSwitch) {
-            module.log(android.util.Log.INFO, TAG, "API101 SystemUI hook skipped because masterSwitch is off")
-            return
+        runtimeEnabled = XposedOwnSP.config.masterSwitch
+        if (!runtimeEnabled) {
+            module.log(android.util.Log.INFO, TAG, "API101 SystemUI runtime starts disabled by masterSwitch")
         }
 
         if (XposedOwnSP.config.testMode) {
@@ -936,6 +950,21 @@ class Api101SystemUIHook(
         }
     }
 
+
+    private fun disableRuntime() {
+        isMusicPlaying = false
+        playingPublisher = ""
+        pendingLyric = ""
+        pendingDelay = 0
+        lastTitle = ""
+        pendingTitleToShow = ""
+        iconDecodeGeneration.incrementAndGet()
+        timeoutRestoreTask.cancel()
+        titleDisplayTask.cancel()
+        statusBarGestureDetector.reset()
+        hideLyric()
+    }
+
     private fun currentAppearanceSnapshot(): RuntimeAppearanceSnapshot {
         return appearanceSnapshot ?: RuntimeAppearanceSnapshot.from(XposedOwnSP.config).also {
             appearanceSnapshot = it
@@ -951,7 +980,7 @@ class Api101SystemUIHook(
     }
 
     private fun showLyric(lyric: String, delay: Int) {
-        if (lyric.isEmpty()) return
+        if (!runtimeEnabled || lyric.isEmpty()) return
         if (XposedOwnSP.config.hideLyricWhenLockScreen && isScreenLocked) return
         val layout = lyricLayout ?: return
         val lyricDisplay = lyricView ?: return
