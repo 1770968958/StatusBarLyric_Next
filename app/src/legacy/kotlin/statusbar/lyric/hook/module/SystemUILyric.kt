@@ -85,6 +85,7 @@ import statusbar.lyric.runtime.LyricRuntimeState
 import statusbar.lyric.runtime.LyricLayoutCalculator
 import statusbar.lyric.runtime.TrackIdentity
 import statusbar.lyric.runtime.StatusBarGesture
+import statusbar.lyric.runtime.SystemUiVisibilityPolicy
 import statusbar.lyric.runtime.StatusBarGestureDetector
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
@@ -824,32 +825,29 @@ class SystemUILyric : BaseHook() {
     }
 
     private fun syncSystemUiVisibilityOverrides() {
-        if (config.hideTime) {
-            visibilityOverrides.apply(clockView, View.GONE)
-            visibilityOverrides.apply(XiaomiHooks.getPadClockView(), View.GONE)
-        } else {
-            visibilityOverrides.restore(clockView)
-            visibilityOverrides.restore(XiaomiHooks.getPadClockView())
+        val policy = currentVisibilityPolicy()
+        syncVisibility(clockView, policy.hideClock)
+        syncVisibility(notificationIconArea, policy.hideNotificationIcons)
+        syncVisibility(XiaomiHooks.getPadClockView(), policy.hidePadClock)
+        syncVisibility(XiaomiHooks.getMiuiNetworkSpeedView(), policy.hideNetworkSpeed)
+        syncVisibility(XiaomiHooks.getCarrierLabel(), policy.hideCarrier)
+        if (!policy.hideNotificationBigTime) {
             visibilityOverrides.restore(XiaomiHooks.getNotificationBigTime())
         }
+    }
 
-        if (config.hideNotificationIcon) {
-            visibilityOverrides.apply(notificationIconArea, View.GONE)
-        } else {
-            visibilityOverrides.restore(notificationIconArea)
-        }
+    private fun currentVisibilityPolicy(): SystemUiVisibilityPolicy =
+        SystemUiVisibilityPolicy.create(
+            hideTime = config.hideTime,
+            hideNotificationIcons = config.hideNotificationIcon,
+            optimizePadClock = config.mMiuiPadOptimize,
+            hideNetworkSpeed = config.mMiuiHideNetworkSpeed,
+            hideCarrier = config.hideCarrier
+        )
 
-        if (config.mMiuiHideNetworkSpeed) {
-            visibilityOverrides.apply(XiaomiHooks.getMiuiNetworkSpeedView(), View.GONE)
-        } else {
-            visibilityOverrides.restore(XiaomiHooks.getMiuiNetworkSpeedView())
-        }
-
-        if (config.hideCarrier) {
-            visibilityOverrides.apply(XiaomiHooks.getCarrierLabel(), View.GONE)
-        } else {
-            visibilityOverrides.restore(XiaomiHooks.getCarrierLabel())
-        }
+    private fun syncVisibility(view: View?, hidden: Boolean) {
+        if (hidden) visibilityOverrides.apply(view, View.GONE)
+        else visibilityOverrides.restore(view)
     }
 
     // 更改图标

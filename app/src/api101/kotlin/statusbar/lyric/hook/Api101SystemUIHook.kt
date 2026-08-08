@@ -58,6 +58,7 @@ import statusbar.lyric.runtime.LyricEventIdentity
 import statusbar.lyric.runtime.LyricRuntimeState
 import statusbar.lyric.runtime.LyricLayoutCalculator
 import statusbar.lyric.runtime.StatusBarGesture
+import statusbar.lyric.runtime.SystemUiVisibilityPolicy
 import statusbar.lyric.runtime.TrackIdentity
 import statusbar.lyric.runtime.StatusBarGestureDetector
 import statusbar.lyric.runtime.TargetViewMatcher
@@ -1026,36 +1027,28 @@ class Api101SystemUIHook(
     }
 
     private fun syncSystemUiVisibilityOverrides() {
+        val policy = currentVisibilityPolicy()
+        syncVisibility(notificationIconArea, policy.hideNotificationIcons)
+        syncVisibility(miuiPadClockView, policy.hidePadClock)
+        syncVisibility(miuiNotificationBigTime, policy.hideNotificationBigTime)
+        syncVisibility(miuiNetworkSpeedView, policy.hideNetworkSpeed)
+        syncVisibility(miuiCarrierLabel, policy.hideCarrier)
+    }
+
+    private fun currentVisibilityPolicy(): SystemUiVisibilityPolicy {
         val config = XposedOwnSP.config
-        if (config.hideNotificationIcon) {
-            visibilityOverrides.apply(notificationIconArea, View.GONE)
-        } else {
-            visibilityOverrides.restore(notificationIconArea)
-        }
+        return SystemUiVisibilityPolicy.create(
+            hideTime = config.hideTime,
+            hideNotificationIcons = config.hideNotificationIcon,
+            optimizePadClock = config.mMiuiPadOptimize,
+            hideNetworkSpeed = config.mMiuiHideNetworkSpeed,
+            hideCarrier = config.hideCarrier
+        )
+    }
 
-        if (config.hideTime) {
-            if (config.mMiuiPadOptimize) {
-                visibilityOverrides.apply(miuiPadClockView, View.GONE)
-            } else {
-                visibilityOverrides.restore(miuiPadClockView)
-            }
-            visibilityOverrides.apply(miuiNotificationBigTime, View.GONE)
-        } else {
-            visibilityOverrides.restore(miuiPadClockView)
-            visibilityOverrides.restore(miuiNotificationBigTime)
-        }
-
-        if (config.mMiuiHideNetworkSpeed) {
-            visibilityOverrides.apply(miuiNetworkSpeedView, View.GONE)
-        } else {
-            visibilityOverrides.restore(miuiNetworkSpeedView)
-        }
-
-        if (config.hideCarrier) {
-            visibilityOverrides.apply(miuiCarrierLabel, View.GONE)
-        } else {
-            visibilityOverrides.restore(miuiCarrierLabel)
-        }
+    private fun syncVisibility(view: View?, hidden: Boolean) {
+        if (hidden) visibilityOverrides.apply(view, View.GONE)
+        else visibilityOverrides.restore(view)
     }
 
     private fun refreshTimeoutRestore() {
