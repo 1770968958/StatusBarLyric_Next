@@ -37,12 +37,27 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
     private var scrollSpeed = 4f
     private var currentX = 0f
     private var lastFrameTimeNanos = 0L
-    private val startScrollRunnable =
-        Runnable { Choreographer.getInstance().postFrameCallback(this) }
+    private var drawText = ""
+
+    private val choreographer: Choreographer
+        get() = Choreographer.getInstance()
+
+    private val startScrollRunnable = Runnable {
+        if (!shouldScroll()) {
+            isScrolling = false
+            currentX = 0f
+            invalidate()
+            return@Runnable
+        }
+        isScrolling = true
+        lastFrameTimeNanos = 0L
+        choreographer.postFrameCallback(this)
+    }
 
     private companion object {
         const val NANOS_PER_60HZ_FRAME = 16_666_667L
         const val MAX_FRAME_DELTA = 4f
+        const val SCROLL_FRAME_DELAY_MILLIS = 33L
     }
 
     init {
@@ -54,87 +69,115 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
         super.onDetachedFromWindow()
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        viewWidth = w.toFloat()
+        if (drawText.isNotEmpty()) {
+            restartScrollIfNeeded()
+        }
+    }
+
     override fun setText(text: CharSequence, type: BufferType) {
         stopScrollNow()
         currentX = 0f
         lastFrameTimeNanos = 0L
-        textLength = getTextLength(text)
+        drawText = text.toString()
+        textLength = paint.measureText(drawText)
         super.setText(text, type)
         startScrollIfNeeded()
     }
 
     override fun setTextColor(color: Int) {
+        if (currentTextColor == color && paint.color == color) return
+        super.setTextColor(color)
         paint.color = color
-        postInvalidate()
+        invalidate()
     }
 
     fun setLinearGradient(shader: Shader?) {
+        if (paint.shader === shader) return
         paint.shader = shader
-        postInvalidate()
+        invalidate()
     }
 
     fun setStrokeWidth(width: Float) {
+        if (paint.strokeWidth == width) return
         paint.strokeWidth = width
-        postInvalidate()
+        paint.style = if (width > 0f) Paint.Style.FILL_AND_STROKE else Paint.Style.FILL
+        invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
-        viewWidth = width.toFloat()
-        val y = (height - (paint.descent() + paint.ascent())) / 2
-        text?.let { canvas.drawText(it.toString(), currentX, y, paint) }
+        if (drawText.isEmpty()) return
+        val contentHeight = height - paddingTop - paddingBottom
+        val baseline = paddingTop +
+            (contentHeight - paint.descent() - paint.ascent()) / 2f
+        canvas.drawText(drawText, currentX, baseline, paint)
     }
 
     private fun updateScrollPosition(frameTimeNanos: Long) {
-        val realTextLength = textLength
-        val realLyricWidth = viewWidth
-        if (realTextLength <= realLyricWidth) {
+        if (!shouldScroll()) {
             currentX = 0f
             stopScrollNow()
-        } else if (realLyricWidth - currentX >= realTextLength) {
-            currentX = realLyricWidth - realTextLength
-            stopScrollNow()
-        } else {
-            val frameDelta = if (lastFrameTimeNanos == 0L) {
-                1f
-            } else {
-                ((frameTimeNanos - lastFrameTimeNanos)
-                    .coerceAtLeast(0L)
-                    .toFloat() / NANOS_PER_60HZ_FRAME)
-                    .coerceIn(0f, MAX_FRAME_DELTA)
-            }
-            lastFrameTimeNanos = frameTimeNanos
-            currentX -= scrollSpeed * frameDelta
+            return
         }
+
+        if (viewWidth - currentX >= textLength) {
+            currentX = viewWidth - textLength
+            stopScrollNow()
+            return
+        }
+
+        val frameDelta = if (lastFrameTimeNanos == 0L) {
+            1f
+        } else {
+            ((frameTimeNanos - lastFrameTimeNanos)
+                .coerceAtLeast(0L)
+                .toFloat() / NANOS_PER_60HZ_FRAME)
+                .coerceIn(0f, MAX_FRAME_DELTA)
+        }
+        lastFrameTimeNanos = frameTimeNanos
+        currentX -= scrollSpeed * frameDelta
     }
 
     override fun doFrame(frameTimeNanos: Long) {
         if (!isScrolling) return
         updateScrollPosition(frameTimeNanos)
-        postInvalidate()
-        Choreographer.getInstance().postFrameCallback(this)
+        invalidate()
+        if (isScrolling) {
+            choreographer.postFrameCallbackDelayed(this, SCROLL_FRAME_DELAY_MILLIS)
+        }
     }
 
     private fun startScrollIfNeeded() {
         if (textLength <= 0f) return
-        isScrolling = true
+        if (viewWidth > 0f && !shouldScroll()) return
         postDelayed(
             startScrollRunnable,
             config.animationDuration + if (config.dynamicLyricSpeed) 200L else 500L
         )
     }
 
+    private fun restartScrollIfNeeded() {
+        stopScrollNow()
+        currentX = 0f
+        lastFrameTimeNanos = 0L
+        startScrollIfNeeded()
+    }
+
+    private fun shouldScroll(): Boolean {
+        return viewWidth > 0f && textLength > viewWidth
+    }
+
     fun stopScrollNow() {
         isScrolling = false
         lastFrameTimeNanos = 0L
         removeCallbacks(startScrollRunnable)
-        Choreographer.getInstance().removeFrameCallback(this)
-    }
-
-    private fun getTextLength(text: CharSequence): Float {
-        return paint.measureText(text.toString())
+        choreographer.removeFrameCallback(this)
     }
 
     fun setScrollSpeed(speed: Float) {
-        this.scrollSpeed = speed
+        if (scrollSpeed == speed) return
+        scrollSpeed = speed
     }
 }
