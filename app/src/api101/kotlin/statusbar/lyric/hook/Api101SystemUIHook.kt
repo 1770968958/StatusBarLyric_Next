@@ -54,7 +54,9 @@ import statusbar.lyric.reflection.ReflectionUtils.findMethod
 import statusbar.lyric.reflection.ReflectionUtils.findMethodByName
 import statusbar.lyric.reflection.ReflectionUtils.getFieldValue
 import statusbar.lyric.reflection.ReflectionUtils.getIntFieldValue
+import statusbar.lyric.runtime.LyricEventIdentity
 import statusbar.lyric.runtime.StatusBarGesture
+import statusbar.lyric.runtime.TrackIdentity
 import statusbar.lyric.runtime.StatusBarGestureDetector
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.ViewVisibilityOverrideState
@@ -121,6 +123,8 @@ class Api101SystemUIHook(
     private var pendingLyric: String = ""
     private var pendingDelay = 0
     private var playingPublisher = ""
+    private var lastTrackIdentity: TrackIdentity? = null
+    private var lastEventIdentity: LyricEventIdentity? = null
     private var lastTitle = ""
     private var lastBase64Icon = ""
     private var isMusicPlaying = false
@@ -198,6 +202,8 @@ class Api101SystemUIHook(
                 pendingLyric = ""
                 pendingDelay = 0
                 playingPublisher = ""
+                lastTrackIdentity = null
+                lastEventIdentity = null
             }
             if (isMusicPlaying && pendingLyric.isNotEmpty()) {
                 showLyric(pendingLyric, pendingDelay)
@@ -215,29 +221,42 @@ class Api101SystemUIHook(
             if (lyric.isEmpty()) return
             val delay = lyricLine.delay.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
             val packageName = publisher.orEmpty()
-            val title = data.title.orEmpty()
+            val trackIdentity = TrackIdentity(
+                title = data.title.orEmpty(),
+                artist = data.artist.orEmpty(),
+                album = data.album.orEmpty()
+            )
             val icon = resolveIconBase64(data, packageName)
 
             mainHandler.post {
                 runCatching {
                     if (!runtimeEnabled) return@post
-                    val sameLyric = isMusicPlaying &&
-                        playingPublisher == packageName &&
-                        pendingLyric == lyric &&
-                        pendingDelay == delay &&
-                        lastBase64Icon == icon
-                    if (sameLyric) {
+                    val eventIdentity = LyricEventIdentity.create(
+                        publisher = packageName,
+                        lyric = lyric,
+                        delayMillis = delay,
+                        track = trackIdentity,
+                        iconSource = icon,
+                        includeTrack = XposedOwnSP.config.titleSwitch,
+                        includeIcon = XposedOwnSP.config.iconSwitch
+                    )
+                    if (isMusicPlaying && lastEventIdentity == eventIdentity) {
                         refreshTimeoutRestore()
                         return@post
                     }
+                    val trackChanged = lastTrackIdentity != trackIdentity
                     isMusicPlaying = true
                     playingPublisher = packageName
                     pendingLyric = lyric
                     pendingDelay = delay
+                    lastEventIdentity = eventIdentity
                     updateIcon(icon)
-                    if (title != lastTitle) {
-                        lastTitle = title
-                        showTitle(title, lyric)
+                    if (XposedOwnSP.config.titleSwitch && trackChanged) {
+                        lastTrackIdentity = trackIdentity
+                        lastTitle = trackIdentity.title
+                        showTitle(trackIdentity.title, lyric)
+                    } else if (!XposedOwnSP.config.titleSwitch) {
+                        lastTrackIdentity = trackIdentity
                     }
                     showLyric(lyric, delay)
                     refreshTimeoutRestore()
@@ -261,6 +280,8 @@ class Api101SystemUIHook(
                     playingPublisher = ""
                     pendingLyric = ""
                     pendingDelay = 0
+                    lastTrackIdentity = null
+                    lastEventIdentity = null
                     iconDecodeGeneration.incrementAndGet()
                     timeoutRestoreTask.cancel()
                     titleDisplayTask.cancel()
@@ -956,6 +977,8 @@ class Api101SystemUIHook(
         playingPublisher = ""
         pendingLyric = ""
         pendingDelay = 0
+        lastTrackIdentity = null
+        lastEventIdentity = null
         lastTitle = ""
         pendingTitleToShow = ""
         iconDecodeGeneration.incrementAndGet()

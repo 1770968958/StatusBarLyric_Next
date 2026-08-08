@@ -82,6 +82,8 @@ import statusbar.lyric.tools.Tools.isLandscape
 import statusbar.lyric.tools.Tools.isNot
 import statusbar.lyric.tools.Tools.isNotNull
 import statusbar.lyric.runtime.InternalBroadcasts
+import statusbar.lyric.runtime.LyricEventIdentity
+import statusbar.lyric.runtime.TrackIdentity
 import statusbar.lyric.runtime.StatusBarGesture
 import statusbar.lyric.runtime.StatusBarGestureDetector
 import statusbar.lyric.runtime.TargetViewMatcher
@@ -624,8 +626,8 @@ class SystemUILyric : BaseHook() {
         autoHideController!!.callMethod("touchAutoHide")
     }
 
-    private var lastArtist: String = ""
-    private var lastAlbum: String = ""
+    private var lastTrackIdentity: TrackIdentity? = null
+    private var lastEventIdentity: LyricEventIdentity? = null
     private var playingApp: String = ""
     private var updateConfig: UpdateConfig = UpdateConfig()
     private var screenLockReceiver: ScreenLockReceiver = ScreenLockReceiver()
@@ -683,6 +685,8 @@ class SystemUILyric : BaseHook() {
         lastLyric = ""
         lastLyricDelay = 0
         playingApp = ""
+        lastTrackIdentity = null
+        lastEventIdentity = null
         isMusicPlaying = false
         pendingTitlePublisher = ""
         pendingTitleData = null
@@ -699,17 +703,23 @@ class SystemUILyric : BaseHook() {
         if (lyric.isEmpty()) return
 
         val delay = lyricLine.delay.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-        val artist = data.artist.orEmpty()
-        val album = data.album.orEmpty()
-        val metadataChanged = lastArtist != artist || lastAlbum != album
+        val trackIdentity = TrackIdentity(
+            title = data.title.orEmpty(),
+            artist = data.artist.orEmpty(),
+            album = data.album.orEmpty()
+        )
+        val trackChanged = lastTrackIdentity != trackIdentity
         val incomingIcon = resolveIconBase64(data, packageName)
-        val sameLyricEvent = isMusicPlaying &&
-            playingApp == packageName &&
-            lastLyric == lyric &&
-            lastLyricDelay == delay &&
-            !isHiding &&
-            (!config.titleSwitch || !metadataChanged) &&
-            (!iconSwitch || lastBase64Icon == incomingIcon)
+        val eventIdentity = LyricEventIdentity.create(
+            publisher = packageName,
+            lyric = lyric,
+            delayMillis = delay,
+            track = trackIdentity,
+            iconSource = incomingIcon,
+            includeTrack = config.titleSwitch,
+            includeIcon = iconSwitch
+        )
+        val sameLyricEvent = isMusicPlaying && !isHiding && lastEventIdentity == eventIdentity
 
         if (sameLyricEvent) {
             refreshTimeoutRestore()
@@ -717,15 +727,17 @@ class SystemUILyric : BaseHook() {
         }
 
         playingApp = packageName
-        if (config.titleSwitch && metadataChanged) {
-            lastArtist = artist
-            lastAlbum = album
+        if (config.titleSwitch && trackChanged) {
+            lastTrackIdentity = trackIdentity
             scheduleTitleOnce(packageName, data)
             LogTools.log {
-                "Title: ${data.title.orEmpty()}, Artist: $lastArtist, Album: $lastAlbum"
+                "Title: ${trackIdentity.title}, Artist: ${trackIdentity.artist}, Album: ${trackIdentity.album}"
             }
+        } else if (!config.titleSwitch) {
+            lastTrackIdentity = trackIdentity
         }
 
+        lastEventIdentity = eventIdentity
         isMusicPlaying = true
         lastLyric = lyric
         lastLyricDelay = delay
@@ -903,6 +915,8 @@ class SystemUILyric : BaseHook() {
             lastLyric = ""
             lastLyricDelay = 0
             playingApp = ""
+            lastTrackIdentity = null
+            lastEventIdentity = null
         }
         refreshAppearanceSnapshot()
         goMainThread(delay) {
@@ -1010,8 +1024,8 @@ class SystemUILyric : BaseHook() {
         lastLyric = ""
         lastLyricDelay = 0
         playingApp = ""
-        lastArtist = ""
-        lastAlbum = ""
+        lastTrackIdentity = null
+        lastEventIdentity = null
         pendingTitlePublisher = ""
         pendingTitleData = null
         timeoutRestoreTask.cancel()
