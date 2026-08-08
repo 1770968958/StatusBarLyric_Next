@@ -127,6 +127,18 @@ class Api101SystemUIHook(
     private var timeoutRunnable: Runnable? = null
     private var mountedTarget: View? = null
     private var mountedParent: ViewGroup? = null
+    private val configRefreshRunnable = Runnable {
+        runCatching {
+            XposedOwnSP.config.update()
+            applyConfiguration()
+            if (isMusicPlaying && pendingLyric.isNotEmpty()) {
+                showLyric(pendingLyric, pendingDelay)
+                refreshTimeoutRestore()
+            }
+        }.onFailure { throwable ->
+            module.log(android.util.Log.WARN, TAG, "API101 config refresh failed", throwable)
+        }
+    }
 
     private val receiver = object : ISuperLyricReceiver.Stub() {
         override fun onLyric(publisher: String?, data: SuperLyricData?) {
@@ -223,18 +235,7 @@ class Api101SystemUIHook(
     private fun registerConfigObserver() {
         if (!configObserverRegistered.compareAndSet(false, true)) return
         XposedOwnSP.registerOnPreferenceChangeListener { _, _ ->
-            mainHandler.post {
-                runCatching {
-                    XposedOwnSP.config.update()
-                    applyConfiguration()
-                    if (isMusicPlaying && pendingLyric.isNotEmpty()) {
-                        showLyric(pendingLyric, pendingDelay)
-                        refreshTimeoutRestore()
-                    }
-                }.onFailure { throwable ->
-                    module.log(android.util.Log.WARN, TAG, "API101 config update failed", throwable)
-                }
-            }
+            scheduleConfigRefresh()
         }
     }
 
@@ -242,18 +243,7 @@ class Api101SystemUIHook(
         if (!configReceiverRegistered.compareAndSet(false, true)) return
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(receiverContext: Context, intent: Intent) {
-                mainHandler.post {
-                    runCatching {
-                        XposedOwnSP.config.update()
-                        applyConfiguration()
-                        if (isMusicPlaying && pendingLyric.isNotEmpty()) {
-                            showLyric(pendingLyric, pendingDelay)
-                            refreshTimeoutRestore()
-                        }
-                    }.onFailure { throwable ->
-                        module.log(android.util.Log.WARN, TAG, "API101 configuration broadcast failed", throwable)
-                    }
-                }
+                scheduleConfigRefresh()
             }
         }
         runCatching {
@@ -268,6 +258,11 @@ class Api101SystemUIHook(
             configReceiverRegistered.set(false)
             module.log(android.util.Log.WARN, TAG, "API101 config receiver registration failed", throwable)
         }
+    }
+
+    private fun scheduleConfigRefresh() {
+        mainHandler.removeCallbacks(configRefreshRunnable)
+        mainHandler.postDelayed(configRefreshRunnable, CONFIG_REFRESH_DEBOUNCE_MILLIS)
     }
 
     private fun registerScreenReceiver(context: Context) {
@@ -1289,6 +1284,7 @@ class Api101SystemUIHook(
         const val MIUI_NOTIFICATION_CALLBACK_CLASS = "com.android.systemui.controlcenter.shade.NotificationHeaderExpandController\$notificationCallback\$1"
         const val FOCUSED_NOTIFICATION_CONTROLLER_CLASS = "com.android.systemui.statusbar.phone.FocusedNotifPromptController"
         const val TITLE_DELAY_MILLIS = 800L
+        const val CONFIG_REFRESH_DEBOUNCE_MILLIS = 32L
         const val LONG_CLICK_MILLIS = 500L
         const val TOUCH_MOVE_THRESHOLD = 50f
     }
