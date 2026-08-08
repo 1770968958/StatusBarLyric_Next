@@ -32,7 +32,6 @@ import android.content.IntentFilter
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.LinearGradient
-import android.graphics.Point
 import android.graphics.PorterDuff
 import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
@@ -84,6 +83,8 @@ import statusbar.lyric.tools.Tools.isLandscape
 import statusbar.lyric.tools.Tools.isNot
 import statusbar.lyric.tools.Tools.isNotNull
 import statusbar.lyric.runtime.InternalBroadcasts
+import statusbar.lyric.runtime.StatusBarGesture
+import statusbar.lyric.runtime.StatusBarGestureDetector
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.ViewVisibilityOverrideState
@@ -99,7 +100,6 @@ import java.io.File
 import java.lang.ref.WeakReference
 import java.util.Collections
 import java.util.WeakHashMap
-import kotlin.math.abs
 import kotlin.math.min
 
 class SystemUILyric : BaseHook() {
@@ -169,7 +169,7 @@ class SystemUILyric : BaseHook() {
         HandlerThread("StatusBarLyric-IconDecode").apply { start() }
     }
     private val iconDecodeHandler: Handler by lazy { Handler(iconDecodeThread.looper) }
-    private lateinit var point: Point
+    private val statusBarGestureDetector = StatusBarGestureDetector()
 
 
     private val displayMetrics: DisplayMetrics by lazy { context.resources.displayMetrics }
@@ -376,96 +376,73 @@ class SystemUILyric : BaseHook() {
             it.methodFinder().filterByName("onTouchEvent").single().createHook {
                 before { hookParam ->
                     val motionEvent = hookParam.args[0] as MotionEvent
-                    when (motionEvent.action) {
-                        MotionEvent.ACTION_DOWN -> {
-                            point = Point(motionEvent.rawX.toInt(), motionEvent.rawY.toInt())
+                    if (!isMusicPlaying) {
+                        statusBarGestureDetector.reset()
+                        return@before
+                    }
+
+                    when (
+                        statusBarGestureDetector.onTouchEvent(
+                            event = motionEvent,
+                            swipeXThresholdPx = config.slideStatusBarCutSongsXRadius.toFloat(),
+                            swipeYRadiusPx = config.slideStatusBarCutSongsYRadius.toFloat()
+                        )
+                    ) {
+                        StatusBarGesture.SwipeNext -> {
+                            if (!config.slideStatusBarCutSongs || isHiding) return@before
+                            moduleRes.getString(R.string.slide_status_bar_cut_songs).log()
+                            mediaKeyDispatcher.next()
+                            hookParam.result = true
                         }
 
-                        MotionEvent.ACTION_MOVE -> {
+                        StatusBarGesture.SwipePrevious -> {
+                            if (!config.slideStatusBarCutSongs || isHiding) return@before
+                            moduleRes.getString(R.string.slide_status_bar_cut_songs).log()
+                            mediaKeyDispatcher.previous()
+                            hookParam.result = true
                         }
 
-                        MotionEvent.ACTION_UP -> {
-                            val isMove =
-                                abs(point.y - motionEvent.rawY.toInt()) > 50 || abs(point.x - motionEvent.rawX.toInt()) > 50
-                            val isLongChick = motionEvent.eventTime - motionEvent.downTime > 500
-                            when (isMove) {
-                                true -> {
-                                    if (config.slideStatusBarCutSongs) {
-                                        if (isMusicPlaying) {
-                                            if (isHiding) return@before
+                        StatusBarGesture.LongPress -> {
+                            if (!config.longClickStatusBarStop || isHiding) return@before
+                            moduleRes.getString(R.string.long_click_status_bar_stop).log()
+                            mediaKeyDispatcher.playPause()
+                            hookParam.result = true
+                        }
 
-                                            if (abs(point.y - motionEvent.rawY.toInt()) <= config.slideStatusBarCutSongsYRadius) {
-                                                val i = point.x - motionEvent.rawX.toInt()
-                                                if (abs(i) > config.slideStatusBarCutSongsXRadius) {
-                                                    moduleRes.getString(R.string.slide_status_bar_cut_songs)
-                                                        .log()
-                                                    if (i > 0) {
-                                                        mediaKeyDispatcher.next()
-                                                    } else {
-                                                        mediaKeyDispatcher.previous()
-                                                    }
-                                                    hookParam.result = true
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                false -> {
-                                    when (isLongChick) {
-                                        true -> {
-                                            if (config.longClickStatusBarStop) {
-                                                if (isHiding) return@before
-
-                                                moduleRes.getString(R.string.long_click_status_bar_stop)
-                                                    .log()
-                                                mediaKeyDispatcher.playPause()
-                                                hookParam.result = true
-                                            }
-                                        }
-
-                                        false -> {
-                                            if (config.clickStatusBarToHideLyric || FocusNotifyController.isOS2FocusNotifyShowing) {
-                                                if (!isMusicPlaying) return@before
-                                                if (FocusNotifyController.isOS1FocusNotifyShowing) return@before
-
-                                                moduleRes.getString(R.string.click_status_bar_to_hide_lyric)
-                                                    .log()
-                                                if (isHiding) {
-                                                    if (FocusNotifyController.canControlFocusNotify()) {
-                                                        if (FocusNotifyController.shouldOpenFocusNotify(
-                                                                motionEvent
-                                                            )
-                                                        ) {
-                                                            "Should open focus notify".log()
-                                                            return@before
-                                                        }
-                                                    }
-                                                    FocusNotifyController.isInteraction = false
-                                                    hookParam.result = true
-                                                    updateLyricState()
-                                                    autoHideStatusBarInFullScreenModeIfNeed()
-                                                } else {
-                                                    val x = motionEvent.x.toInt()
-                                                    val y = motionEvent.y.toInt()
-                                                    val left = lyricLayout.left
-                                                    val top = lyricLayout.top
-                                                    val right = lyricLayout.right
-                                                    val bottom = lyricLayout.bottom
-                                                    if (x in left..right && y in top..bottom) {
-                                                        FocusNotifyController.isInteraction = true
-                                                        hookParam.result = true
-                                                        updateLyricState(showLyric = false)
-                                                        autoHideStatusBarInFullScreenModeIfNeed()
-                                                    }
-                                                    LogTools.log { "Change to hide LyricView: $isHiding" }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                        StatusBarGesture.Tap -> {
+                            if (!config.clickStatusBarToHideLyric && !FocusNotifyController.isOS2FocusNotifyShowing) {
+                                return@before
                             }
+                            if (FocusNotifyController.isOS1FocusNotifyShowing) return@before
+
+                            moduleRes.getString(R.string.click_status_bar_to_hide_lyric).log()
+                            if (isHiding) {
+                                if (FocusNotifyController.canControlFocusNotify() &&
+                                    FocusNotifyController.shouldOpenFocusNotify(motionEvent)
+                                ) {
+                                    "Should open focus notify".log()
+                                    return@before
+                                }
+                                FocusNotifyController.isInteraction = false
+                                hookParam.result = true
+                                updateLyricState()
+                                autoHideStatusBarInFullScreenModeIfNeed()
+                            } else if (
+                                StatusBarGestureDetector.containsRawPoint(
+                                    lyricLayout,
+                                    motionEvent.rawX,
+                                    motionEvent.rawY
+                                )
+                            ) {
+                                FocusNotifyController.isInteraction = true
+                                hookParam.result = true
+                                updateLyricState(showLyric = false)
+                                autoHideStatusBarInFullScreenModeIfNeed()
+                            }
+                            LogTools.log { "Change to hide LyricView: $isHiding" }
                         }
+
+                        StatusBarGesture.None -> Unit
                     }
                 }
             }

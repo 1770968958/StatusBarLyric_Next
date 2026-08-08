@@ -28,7 +28,6 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.LinearGradient
-import android.graphics.PointF
 import android.graphics.PorterDuff
 import android.graphics.Shader
 import android.graphics.Typeface
@@ -55,6 +54,8 @@ import statusbar.lyric.reflection.ReflectionUtils.findMethod
 import statusbar.lyric.reflection.ReflectionUtils.findMethodByName
 import statusbar.lyric.reflection.ReflectionUtils.getFieldValue
 import statusbar.lyric.reflection.ReflectionUtils.getIntFieldValue
+import statusbar.lyric.runtime.StatusBarGesture
+import statusbar.lyric.runtime.StatusBarGestureDetector
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.ViewVisibilityOverrideState
 import statusbar.lyric.runtime.TargetViewSpec
@@ -79,7 +80,6 @@ import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -152,7 +152,7 @@ class Api101SystemUIHook(
         set(value) { miuiNotificationBigTimeRef = value?.let(::WeakReference) }
     private var focusedNotificationController: Any? = null
     private var focusedNotificationShowing = false
-    private var touchDownPoint: PointF? = null
+    private val statusBarGestureDetector = StatusBarGestureDetector()
     private var pendingTitleToShow = ""
     private var mountedTargetRef: WeakReference<View>? = null
     private var mountedTarget: View?
@@ -415,50 +415,47 @@ class Api101SystemUIHook(
     }
 
     private fun onStatusBarTouch(event: MotionEvent): Boolean {
-        if (!isMusicPlaying) return false
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                touchDownPoint = PointF(event.rawX, event.rawY)
-                return false
+        if (!isMusicPlaying) {
+            statusBarGestureDetector.reset()
+            return false
+        }
+
+        val gesture = statusBarGestureDetector.onTouchEvent(
+            event = event,
+            swipeXThresholdPx = XposedOwnSP.config.slideStatusBarCutSongsXRadius.toFloat(),
+            swipeYRadiusPx = XposedOwnSP.config.slideStatusBarCutSongsYRadius.toFloat()
+        )
+        return when (gesture) {
+            StatusBarGesture.SwipeNext -> {
+                if (!XposedOwnSP.config.slideStatusBarCutSongs) return false
+                mediaKeyDispatcher?.next()
+                true
             }
 
-            MotionEvent.ACTION_UP -> {
-                val start = touchDownPoint ?: return false
-                val horizontal = start.x - event.rawX
-                val vertical = abs(start.y - event.rawY)
-                val moved = abs(horizontal) > TOUCH_MOVE_THRESHOLD || vertical > TOUCH_MOVE_THRESHOLD
-                if (moved && XposedOwnSP.config.slideStatusBarCutSongs &&
-                    vertical <= XposedOwnSP.config.slideStatusBarCutSongsYRadius
-                ) {
-                    if (abs(horizontal) > XposedOwnSP.config.slideStatusBarCutSongsXRadius) {
-                        if (horizontal > 0f) {
-                            mediaKeyDispatcher?.next()
-                        } else {
-                            mediaKeyDispatcher?.previous()
-                        }
-                        return true
-                    }
-                    return false
-                }
-                if (!moved && event.eventTime - event.downTime > LONG_CLICK_MILLIS &&
-                    XposedOwnSP.config.longClickStatusBarStop
-                ) {
-                    mediaKeyDispatcher?.playPause()
-                    return true
-                }
-                if (!moved && XposedOwnSP.config.clickStatusBarToHideLyric && isTouchInsideLyric(event)) {
-                    if (lyricShowing) hideLyric() else showLyric(pendingLyric, pendingDelay)
-                    return true
-                }
+            StatusBarGesture.SwipePrevious -> {
+                if (!XposedOwnSP.config.slideStatusBarCutSongs) return false
+                mediaKeyDispatcher?.previous()
+                true
             }
+
+            StatusBarGesture.LongPress -> {
+                if (!XposedOwnSP.config.longClickStatusBarStop) return false
+                mediaKeyDispatcher?.playPause()
+                true
+            }
+
+            StatusBarGesture.Tap -> {
+                if (!XposedOwnSP.config.clickStatusBarToHideLyric || !isTouchInsideLyric(event)) return false
+                if (lyricShowing) hideLyric() else showLyric(pendingLyric, pendingDelay)
+                true
+            }
+
+            StatusBarGesture.None -> false
         }
-        return false
     }
 
     private fun isTouchInsideLyric(event: MotionEvent): Boolean {
-        val layout = lyricLayout ?: return false
-        return event.x >= layout.left && event.x <= layout.right &&
-            event.y >= layout.top && event.y <= layout.bottom
+        return StatusBarGestureDetector.containsRawPoint(lyricLayout, event.rawX, event.rawY)
     }
 
     private fun registerXiaomiHooks(classLoader: ClassLoader) {
@@ -1291,7 +1288,5 @@ class Api101SystemUIHook(
         const val FOCUSED_NOTIFICATION_CONTROLLER_CLASS = "com.android.systemui.statusbar.phone.FocusedNotifPromptController"
         const val TITLE_DELAY_MILLIS = 800L
         const val CONFIG_REFRESH_DEBOUNCE_MILLIS = 32L
-        const val LONG_CLICK_MILLIS = 500L
-        const val TOUCH_MOVE_THRESHOLD = 50f
     }
 }
