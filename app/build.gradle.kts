@@ -37,8 +37,8 @@ android {
         applicationId = "statusbar.lyric"
         minSdk = 30
         targetSdk = 36
-        versionCode = 106
-        versionName = "1.0.7"
+        versionCode = 107
+        versionName = "1.1.0"
         buildConfigField("long", "BUILD_TIME", "${buildTime}L")
         buildConfigField("int", "COMPOSE_CONFIG_VERSION", "1")
         setProperty("archivesBaseName", "StatusBarLyric_Next-$versionName($versionCode)")
