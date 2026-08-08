@@ -27,14 +27,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
-import android.graphics.LinearGradient
 import android.graphics.PorterDuff
-import android.graphics.Shader
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -68,7 +63,7 @@ import statusbar.lyric.runtime.icon.SharedLyricIconBitmapCache
 import statusbar.lyric.runtime.input.MediaKeyDispatcher
 import statusbar.lyric.runtime.scheduler.ResettableHandlerTask
 import statusbar.lyric.runtime.style.RuntimeAppearanceSnapshot
-import statusbar.lyric.runtime.style.TypefaceFileCache
+import statusbar.lyric.runtime.style.LyricAppearanceApplier
 import statusbar.lyric.tools.BlurTools.cornerRadius
 import statusbar.lyric.tools.BlurTools.setBackgroundBlur
 import statusbar.lyric.tools.LyricViewTools
@@ -108,7 +103,7 @@ class Api101SystemUIHook(
     private val visibilityOverrides = ViewVisibilityOverrideState()
     private val lyricDisplayState = Api101LyricDisplayState(visibilityOverrides)
     private val targetViewMatcher = TargetViewMatcher()
-    private val typefaceFileCache = TypefaceFileCache()
+    private val lyricAppearanceApplier = LyricAppearanceApplier()
     private var appearanceSnapshot: RuntimeAppearanceSnapshot? = null
     private var appliedAppearanceKey: AppliedAppearanceKey? = null
     private var mediaKeyDispatcher: MediaKeyDispatcher? = null
@@ -711,7 +706,7 @@ class Api101SystemUIHook(
         val lyric = object : LyricSwitchView(context) {
             override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
                 super.onSizeChanged(w, h, oldw, oldh)
-                applyGradient(this, currentAppearanceSnapshot())
+                lyricAppearanceApplier.applyGradient(this, currentAppearanceSnapshot())
             }
         }.apply {
             visibility = View.VISIBLE
@@ -770,74 +765,21 @@ class Api101SystemUIHook(
     private fun applyLyricAppearance(
         target: LyricSwitchView,
         source: TextView,
-        appearance: RuntimeAppearanceSnapshot
+        appearance: RuntimeAppearanceSnapshot = currentAppearanceSnapshot()
     ) {
-        target.setSingleLine(true)
-        target.setMaxLines(1)
-
-        val lyricSize = if (appearance.lyricSizePx > 0) {
-            appearance.lyricSizePx.toFloat()
-        } else {
-            source.textSize
-        }
-        if (lyricSize > 0f) {
-            target.setTextSize(TypedValue.COMPLEX_UNIT_PX, lyricSize)
-        }
-
-        target.setTextColor(
-            appearance.lyricColor ?: lyricDisplayState.resolveTextColor(
+        lyricAppearanceApplier.applyText(
+            target = target,
+            appearance = appearance,
+            sourceTextSizePx = source.textSize,
+            sourceTextColor = source.currentTextColor,
+            sourceLetterSpacing = source.letterSpacing,
+            fallbackTypeface = source.typeface,
+            fontFile = File(source.context.filesDir, "font"),
+            dynamicTextColor = lyricDisplayState.resolveTextColor(
                 source.currentTextColor,
                 appearance.usesDynamicLyricColor
             )
         )
-        target.setLinearGradient(null)
-        target.setLetterSpacings(appearance.lyricLetterSpacingOverride ?: source.letterSpacing)
-        target.setStrokeWidth(appearance.lyricStrokeWidth)
-        applyBackground(target, appearance.lyricBackgroundColors, appearance.lyricBackgroundRadius)
-        applyGradient(target, appearance)
-        applyTypeface(target, source.typeface)
-    }
-
-    private fun applyBackground(target: LyricSwitchView, colors: List<Int>, radius: Int) {
-        target.setBackgroundColor(Color.TRANSPARENT)
-        if (colors.isEmpty()) return
-
-        target.background = if (colors.size == 1) {
-            GradientDrawable().apply {
-                setColor(colors[0])
-                if (radius > 0) cornerRadius = radius.toFloat()
-            }
-        } else {
-            GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, colors.toIntArray()).apply {
-                if (radius > 0) cornerRadius = radius.toFloat()
-            }
-        }
-    }
-
-    private fun applyGradient(target: LyricSwitchView, appearance: RuntimeAppearanceSnapshot) {
-        val colors = appearance.lyricGradientColors
-        if (colors.size < 2 || target.width <= 0) {
-            if (appearance.hasLyricGradient && colors.size == 1) {
-                target.setTextColor(colors[0])
-            }
-            return
-        }
-        target.setLinearGradient(
-            LinearGradient(
-                0f,
-                0f,
-                target.width.toFloat(),
-                0f,
-                colors.toIntArray(),
-                null,
-                Shader.TileMode.CLAMP
-            )
-        )
-    }
-
-    private fun applyTypeface(target: LyricSwitchView, fallback: Typeface) {
-        val filesDir = mountedParent?.context?.filesDir ?: return target.setTypeface(fallback)
-        target.setTypeface(typefaceFileCache.resolve(File(filesDir, "font"), fallback))
     }
 
     private fun createLayoutParams(source: View): ViewGroup.LayoutParams {
@@ -862,26 +804,6 @@ class Api101SystemUIHook(
         return params
     }
 
-    private fun updateMountedLayoutMargins(appearance: RuntimeAppearanceSnapshot) {
-        val layout = lyricLayout ?: return
-        val params = layout.layoutParams as? ViewGroup.MarginLayoutParams ?: return
-        if (
-            params.leftMargin == appearance.lyricStartMargin &&
-            params.topMargin == appearance.lyricTopMargin &&
-            params.rightMargin == appearance.lyricEndMargin &&
-            params.bottomMargin == appearance.lyricBottomMargin
-        ) {
-            return
-        }
-        params.setMargins(
-            appearance.lyricStartMargin,
-            appearance.lyricTopMargin,
-            appearance.lyricEndMargin,
-            appearance.lyricBottomMargin
-        )
-        layout.layoutParams = params
-    }
-
     private fun applyConfiguration(source: TextView? = mountedTarget as? TextView) {
         val clock = source ?: return
         val lyric = lyricView ?: return
@@ -897,7 +819,7 @@ class Api101SystemUIHook(
         )
 
         if (appliedAppearanceKey != key) {
-            updateMountedLayoutMargins(appearance)
+            lyricLayout?.let { lyricAppearanceApplier.applyMargins(it, appearance) }
             applyLyricAppearance(lyric, clock, appearance)
             lyric.setScrollSpeed(appearance.lyricSpeed)
             lyric.inAnimation = LyricViewTools.switchViewInAnima(
@@ -924,26 +846,13 @@ class Api101SystemUIHook(
                 }
             }
 
-            iconView?.apply {
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.MATCH_PARENT
-                ).apply {
-                    setMargins(
-                        appearance.iconStartMargin,
-                        appearance.iconTopMargin,
-                        0,
-                        appearance.iconBottomMargin
-                    )
-                    val size = if (appearance.iconSizePx == 0) clock.height / 2 else appearance.iconSizePx
-                    width = size
-                    height = size
-                }
-                setColorFilter(
-                    appearance.iconColor ?: clock.currentTextColor,
-                    PorterDuff.Mode.SRC_IN
+            iconView?.let {
+                lyricAppearanceApplier.applyIcon(
+                    target = it,
+                    appearance = appearance,
+                    sourceHeightPx = clock.height,
+                    sourceTextColor = clock.currentTextColor
                 )
-                setBackgroundColor(appearance.iconBackgroundColor)
             }
             appliedAppearanceKey = key
         }

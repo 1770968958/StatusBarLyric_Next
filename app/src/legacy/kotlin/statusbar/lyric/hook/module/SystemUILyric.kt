@@ -34,12 +34,10 @@ import android.graphics.Color
 import android.graphics.LinearGradient
 import android.graphics.PorterDuff
 import android.graphics.Shader
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
-import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -94,7 +92,7 @@ import statusbar.lyric.runtime.icon.SharedLyricIconBitmapCache
 import statusbar.lyric.runtime.input.MediaKeyDispatcher
 import statusbar.lyric.runtime.scheduler.ResettableHandlerTask
 import statusbar.lyric.runtime.style.RuntimeAppearanceSnapshot
-import statusbar.lyric.runtime.style.TypefaceFileCache
+import statusbar.lyric.runtime.style.LyricAppearanceApplier
 import statusbar.lyric.tools.Tools.observableChange
 import statusbar.lyric.tools.XiaomiUtils.isHyperOS
 import statusbar.lyric.view.LyricSwitchView
@@ -238,7 +236,7 @@ class SystemUILyric : BaseHook() {
         set(value) { statusBatteryContainerRef = value?.let(::WeakReference) }
     private val targetViewMatcher = TargetViewMatcher()
     private val visibilityOverrides = ViewVisibilityOverrideState()
-    private val typefaceFileCache = TypefaceFileCache()
+    private val lyricAppearanceApplier = LyricAppearanceApplier()
     private var appearanceSnapshot: RuntimeAppearanceSnapshot? = null
     private val mediaKeyDispatcher by lazy { MediaKeyDispatcher(context) }
     private val observedTargetViews = Collections.newSetFromMap(WeakHashMap<TextView, Boolean>())
@@ -889,49 +887,19 @@ class SystemUILyric : BaseHook() {
         refreshAppearanceSnapshot()
         goMainThread(delay) {
             val appearance = currentAppearanceSnapshot()
+            lyricAppearanceApplier.applyMargins(lyricView, appearance)
+            lyricAppearanceApplier.applyText(
+                target = lyricView,
+                appearance = appearance,
+                sourceTextSizePx = clockView.textSize,
+                sourceTextColor = clockView.currentTextColor,
+                sourceLetterSpacing = clockView.letterSpacing,
+                fallbackTypeface = clockView.typeface,
+                fontFile = File(context.filesDir, "font"),
+                dynamicTextColor = clockView.currentTextColor
+            )
             lyricView.apply {
-                setTextSize(
-                    TypedValue.COMPLEX_UNIT_PX,
-                    if (appearance.lyricSizePx == 0) clockView.textSize else appearance.lyricSizePx.toFloat()
-                )
-                setMargins(
-                    appearance.lyricStartMargin,
-                    appearance.lyricTopMargin,
-                    appearance.lyricEndMargin,
-                    appearance.lyricBottomMargin
-                )
-                if (!appearance.hasLyricGradient) {
-                    setLinearGradient(null)
-                    setTextColor(appearance.lyricColor ?: clockView.currentTextColor)
-                }
-                setLetterSpacings(appearance.lyricLetterSpacingOverride ?: clockView.letterSpacing)
-                setStrokeWidth(appearance.lyricStrokeWidth)
                 if (!appearance.dynamicLyricSpeed) setScrollSpeed(appearance.lyricSpeed)
-                val colors = appearance.lyricBackgroundColors
-                if (colors.isEmpty()) {
-                    setBackgroundColor(Color.TRANSPARENT)
-                } else if (colors.size < 2) {
-                    colors.firstOrNull()?.let { color ->
-                        if (appearance.lyricBackgroundRadius != 0) {
-                            setBackgroundColor(Color.TRANSPARENT)
-                            background = GradientDrawable().apply {
-                                cornerRadius = appearance.lyricBackgroundRadius.toFloat()
-                                setColor(color)
-                            }
-                        } else {
-                            setBackgroundColor(color)
-                        }
-                    }
-                } else {
-                    background = GradientDrawable(
-                        GradientDrawable.Orientation.LEFT_RIGHT, colors.toIntArray()
-                    ).apply {
-                        if (appearance.lyricBackgroundRadius != 0) {
-                            cornerRadius = appearance.lyricBackgroundRadius.toFloat()
-                        }
-                    }
-                }
-
                 val animation = appearance.lyricAnimation
                 isRandomAnima = animation == 11
                 if (!isRandomAnima) {
@@ -942,9 +910,6 @@ class SystemUILyric : BaseHook() {
                         LyricViewTools.switchViewInAnima(animation, interpolator, duration)
                     outAnimation = LyricViewTools.switchViewOutAnima(animation, duration)
                 }
-                setTypeface(
-                    typefaceFileCache.resolve(File(context.filesDir, "font"), clockView.typeface)
-                )
             }
             if (!appearance.iconEnabled) {
                 iconView.hideView()
@@ -952,28 +917,12 @@ class SystemUILyric : BaseHook() {
             } else {
                 iconView.showView()
                 iconSwitch = true
-                iconView.apply {
-                    layoutParams = LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                        LinearLayout.LayoutParams.MATCH_PARENT
-                    ).apply {
-                        setMargins(
-                            appearance.iconStartMargin,
-                            appearance.iconTopMargin,
-                            0,
-                            appearance.iconBottomMargin
-                        )
-                        if (appearance.iconSizePx == 0) {
-                            width = clockView.height / 2
-                            height = clockView.height / 2
-                        } else {
-                            width = appearance.iconSizePx
-                            height = appearance.iconSizePx
-                        }
-                    }
-                    setColorFilter(appearance.iconColor ?: clockView.currentTextColor, PorterDuff.Mode.SRC_IN)
-                    setBackgroundColor(appearance.iconBackgroundColor)
-                }
+                lyricAppearanceApplier.applyIcon(
+                    target = iconView,
+                    appearance = appearance,
+                    sourceHeightPx = clockView.height,
+                    sourceTextColor = clockView.currentTextColor
+                )
             }
             if (isMusicPlaying && !isHiding) {
                 syncSystemUiVisibilityOverrides()
