@@ -41,10 +41,17 @@ import io.github.libxposed.api.XposedModule
 import statusbar.lyric.R
 import statusbar.lyric.config.XposedOwnSP
 import statusbar.lyric.data.Data
+import statusbar.lyric.runtime.test.AnchorCandidateDetector
+import statusbar.lyric.runtime.test.AnchorCandidateSignature
+import statusbar.lyric.runtime.test.AnchorTestProtocol.ACTION_TEST_RECEIVER
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_DATA
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_REQUEST_ID
+import statusbar.lyric.runtime.test.AnchorTestProtocol.EXTRA_TYPE
+import statusbar.lyric.runtime.test.AnchorTestProtocol.NO_REQUEST_ID
+import statusbar.lyric.runtime.test.AnchorTestProtocol.TYPE_GET_CLASS
+import statusbar.lyric.runtime.test.AnchorTestProtocol.TYPE_SHOW_VIEW
 import statusbar.lyric.tools.ActivityTestTools.receiveClass
-import java.text.SimpleDateFormat
 import java.util.IdentityHashMap
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -57,15 +64,25 @@ class Api101SystemUITest(
     private val drawHookInstalled = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val candidates = IdentityHashMap<TextView, Data>()
-    private val timeFormats = arrayOf(
-        SimpleDateFormat("H:mm", Locale.getDefault()),
-        SimpleDateFormat("h:mm", Locale.getDefault())
-    )
+    private val candidateDetector = AnchorCandidateDetector()
+
+    @Volatile
+    private var collectionEnabled = false
+
+    private val stopCollectionRunnable = Runnable { collectionEnabled = false }
 
     private var previewView: TextView? = null
     private var previewedTarget: TextView? = null
 
     fun start(context: Context) {
+        candidates.clear()
+        candidateDetector.start(XposedOwnSP.config.relaxConditions)
+        collectionEnabled = true
+        mainHandler.removeCallbacks(stopCollectionRunnable)
+        mainHandler.postDelayed(
+            stopCollectionRunnable,
+            AnchorCandidateDetector.COLLECTION_DURATION_MILLIS
+        )
         registerReceiver(context)
         installDrawHook()
     }
@@ -104,10 +121,12 @@ class Api101SystemUITest(
     }
 
     private fun onTextViewDraw(view: TextView) {
-        if (candidates.containsKey(view)) return
+        if (!collectionEnabled || candidates.containsKey(view)) return
         val parent = view.parent as? LinearLayout ?: return
-        val text = view.text?.toString().orEmpty()
-        if (!isCandidateText(text) || !isCandidateClass(view.javaClass.name)) return
+        val className = view.javaClass.name
+        if (!candidateDetector.isCandidateText(view.text) ||
+            !candidateDetector.isCandidateClass(className)
+        ) return
 
         val idName = runCatching {
             if (view.id == View.NO_ID) "" else view.resources.getResourceEntryName(view.id)
@@ -115,41 +134,26 @@ class Api101SystemUITest(
         val clockContainerId = view.resources.getIdentifier("clock_container", "id", view.context.packageName)
         if (parent.id == clockContainerId) return
 
-        val base = Data(
-            view.javaClass.name,
-            view.id,
-            parent.javaClass.name,
-            parent.id,
-            false,
-            0,
-            view.textSize,
-            idName
+        val signature = AnchorCandidateSignature(
+            textViewClassName = className,
+            textViewId = view.id,
+            parentViewClassName = parent.javaClass.name,
+            parentViewId = parent.id,
+            textSize = view.textSize,
+            idName = idName
         )
-        base.index = candidates.values.count { candidate ->
-            candidate.textViewClassName == base.textViewClassName &&
-                candidate.textViewId == base.textViewId &&
-                candidate.parentViewClassName == base.parentViewClassName &&
-                candidate.parentViewId == base.parentViewId &&
-                candidate.textSize == base.textSize &&
-                candidate.idName == base.idName
-        }
+        val base = Data(
+            signature.textViewClassName,
+            signature.textViewId,
+            signature.parentViewClassName,
+            signature.parentViewId,
+            false,
+            candidateDetector.nextIndex(signature),
+            signature.textSize,
+            signature.idName
+        )
         candidates[view] = base
         module.log(Log.INFO, TAG, "API101 anchor candidate collected; count=${candidates.size}; data=$base")
-    }
-
-    private fun isCandidateText(text: String): Boolean {
-        if (timeFormats.any { it.format(System.currentTimeMillis()).toRegex().containsMatchIn(text) }) {
-            return true
-        }
-        return XposedOwnSP.config.relaxConditions && listOf("周", "月", "日").any(text::contains)
-    }
-
-    private fun isCandidateClass(className: String): Boolean {
-        if (XposedOwnSP.config.relaxConditions) return true
-        if (className == TextView::class.java.name) return false
-        return listOf("controlcenter", "image", "keyguard").none { filter ->
-            className.contains(filter, ignoreCase = true)
-        }
     }
 
     private fun sendCandidates(context: Context, requestId: Long) {
@@ -159,7 +163,7 @@ class Api101SystemUITest(
 
     private fun previewCandidate(data: Data) {
         mainHandler.post {
-            val target = candidates.entries.firstOrNull { (_, candidate) -> candidate.matches(data) }?.key ?: return@post
+            val target = candidates.entries.firstOrNull { (_, candidate) -> candidateDetector.matches(candidate, data) }?.key ?: return@post
             val parent = target.parent as? LinearLayout ?: return@post
             previewedTarget?.let { previous ->
                 (previewView?.parent as? LinearLayout)?.removeView(previewView)
@@ -199,15 +203,6 @@ class Api101SystemUITest(
         }
     }
 
-    private fun Data.matches(other: Data): Boolean {
-        return textViewClassName == other.textViewClassName &&
-            textViewId == other.textViewId &&
-            parentViewClassName == other.parentViewClassName &&
-            parentViewId == other.parentViewId &&
-            textSize == other.textSize &&
-            index == other.index
-    }
-
     private class DrawHooker(
         private val owner: Api101SystemUITest
     ) : XposedInterface.Hooker {
@@ -220,13 +215,5 @@ class Api101SystemUITest(
 
     private companion object {
         const val TAG = "StatusBarLyric/API101"
-        const val ACTION_TEST_RECEIVER = "TestReceiver"
-        const val EXTRA_TYPE = "Type"
-        const val EXTRA_DATA = "Data"
-        const val EXTRA_REQUEST_ID = "RequestId"
-        const val TYPE_GET_CLASS = "GetClass"
-        const val TYPE_SHOW_VIEW = "ShowView"
-        const val NO_REQUEST_ID = Long.MIN_VALUE
-
     }
 }
