@@ -53,6 +53,8 @@ import com.hchen.superlyricapi.SuperLyricHelper
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import statusbar.lyric.config.XposedOwnSP
+import statusbar.lyric.runtime.TargetViewMatcher
+import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.tools.BlurTools.cornerRadius
 import statusbar.lyric.tools.BlurTools.setBackgroundBlur
 import statusbar.lyric.tools.LyricViewTools
@@ -66,7 +68,6 @@ import statusbar.lyric.view.LyricSwitchView
 import statusbar.lyric.view.TitleDialog
 import java.io.File
 import java.lang.reflect.Method
-import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.max
@@ -93,6 +94,7 @@ class Api101SystemUIHook(
     private val focusNotificationHookInstalled = AtomicBoolean(false)
     private val systemUiTest = Api101SystemUITest(module)
     private val lyricDisplayState = Api101LyricDisplayState()
+    private val targetViewMatcher = TargetViewMatcher()
 
     private var lyricView: LyricSwitchView? = null
     private var lyricLayout: LinearLayout? = null
@@ -120,8 +122,6 @@ class Api101SystemUIHook(
     private var timeoutRunnable: Runnable? = null
     private var mountedTarget: View? = null
     private var mountedParent: ViewGroup? = null
-    private val parentMatchStates = IdentityHashMap<ViewGroup, ParentMatchState>()
-    private val targetParents = IdentityHashMap<View, ViewGroup>()
 
     private val receiver = object : ISuperLyricReceiver.Stub() {
         override fun onLyric(publisher: String?, data: SuperLyricData?) {
@@ -607,7 +607,7 @@ class Api101SystemUIHook(
         val view = candidate as? View ?: return
         val source = view as? TextView ?: return
         if (view === lyricView) return
-        val match = findConfiguredTarget(source) ?: return
+        val match = targetViewMatcher.match(source, currentTargetViewSpec()) ?: return
 
         mainHandler.post {
             runCatching {
@@ -675,18 +675,7 @@ class Api101SystemUIHook(
     private fun onTargetViewDetached(candidate: Any?, parentBeforeDetach: ViewGroup?) {
         val view = candidate as? View ?: return
         lyricDisplayState.unbindClock(view)
-        val parent = synchronized(parentMatchStates) {
-            val knownParent = targetParents.remove(view) ?: parentBeforeDetach
-            if (knownParent != null) {
-                parentMatchStates[knownParent]?.let { state ->
-                    state.matchedIndices.remove(view)
-                    if (state.matchedIndices.isEmpty()) {
-                        parentMatchStates.remove(knownParent)
-                    }
-                }
-            }
-            knownParent
-        }
+        val parent = targetViewMatcher.forget(view, parentBeforeDetach)
 
         if (mountedTarget !== view) return
         mountedTarget = null
@@ -708,29 +697,16 @@ class Api101SystemUIHook(
         }
     }
 
-    private fun findConfiguredTarget(view: View): TargetMatch? {
+    private fun currentTargetViewSpec(): TargetViewSpec {
         val config = XposedOwnSP.config
-        if (view !is TextView || view.javaClass.name != config.textViewClassName) return null
-        if (view.id != config.textViewId) return null
-
-        // A zero/default recorded text size means "do not constrain by size".
-        val expectedTextSize = config.textSize
-        if (expectedTextSize > 0f && abs(view.textSize - expectedTextSize) > TEXT_SIZE_EPSILON) {
-            return null
-        }
-
-        val parent = view.parent as? ViewGroup ?: return null
-        if (parent.javaClass.name != config.parentViewClassName || parent.id != config.parentViewId) return null
-
-        val index = synchronized(parentMatchStates) {
-            val state = parentMatchStates.getOrPut(parent) { ParentMatchState() }
-            state.matchedIndices[view] ?: state.nextIndex.also {
-                state.nextIndex += 1
-                state.matchedIndices[view] = it
-                targetParents[view] = parent
-            }
-        }
-        return if (index == config.index) TargetMatch(parent, index) else null
+        return TargetViewSpec(
+            textViewClassName = config.textViewClassName,
+            textViewId = config.textViewId,
+            parentViewClassName = config.parentViewClassName,
+            parentViewId = config.parentViewId,
+            expectedTextSizePx = config.textSize,
+            targetIndex = config.index
+        )
     }
 
     private fun applyLyricAppearance(target: LyricSwitchView, source: TextView) {
@@ -1289,26 +1265,15 @@ class Api101SystemUIHook(
         }
     }
 
-    private data class TargetMatch(
-        val parent: ViewGroup,
-        val index: Int
-    )
-
     private enum class XiaomiViewKind {
         NETWORK_SPEED,
         CARRIER
     }
 
-    private class ParentMatchState(
-        var nextIndex: Int = 0,
-        val matchedIndices: IdentityHashMap<View, Int> = IdentityHashMap()
-    )
-
     private companion object {
         const val TAG = "StatusBarLyric/API101"
         const val ACTION_UPDATE_CONFIG = "updateConfig"
         const val DARK_ICON_DISPATCHER_CLASS = "com.android.systemui.statusbar.phone.DarkIconDispatcherImpl"
-        const val TEXT_SIZE_EPSILON = 0.5f
         const val PHONE_STATUS_BAR_VIEW_CLASS = "com.android.systemui.statusbar.phone.PhoneStatusBarView"
         const val NOTIFICATION_ICON_AREA_CONTROLLER_CLASS = "com.android.systemui.statusbar.phone.NotificationIconAreaController"
         const val COLLAPSED_STATUS_BAR_FRAGMENT_CLASS = "com.android.systemui.statusbar.phone.fragment.CollapsedStatusBarFragment"

@@ -32,12 +32,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.View
-import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
 import statusbar.lyric.BuildConfig
 import statusbar.lyric.MainActivity
-import statusbar.lyric.config.XposedOwnSP
 import statusbar.lyric.tools.ActivityTools.isHook
 import statusbar.lyric.tools.LogTools.log
 import java.io.DataOutputStream
@@ -52,8 +49,6 @@ import kotlin.properties.ReadWriteProperty
 @SuppressLint("StaticFieldLeak")
 object Tools {
     private val mainHandler: Handler by lazy { Handler(Looper.getMainLooper()) }
-
-    private var index: Int = 0
 
     val buildTime: String =
         SimpleDateFormat("yyyy/M/d H:m:s", Locale.CHINA).format(BuildConfig.BUILD_TIME)
@@ -114,39 +109,6 @@ object Tools {
                 onChange(oldVal, newVal)
             }
         }
-    }
-
-    fun View.isTargetView(): Boolean {
-        val textViewClassName = XposedOwnSP.config.textViewClassName
-        val textViewId = XposedOwnSP.config.textViewId
-        val parentViewClassName = XposedOwnSP.config.parentViewClassName
-        val parentViewId = XposedOwnSP.config.parentViewId
-        val textSize = XposedOwnSP.config.textSize
-        if (textViewClassName.isEmpty() || parentViewClassName.isEmpty() || textViewId == 0 || parentViewId == 0 || textSize == 0f) {
-            "target view config is incomplete".log()
-            return false
-        }
-        if (this is TextView) {
-            if (this::class.java.name == textViewClassName) {
-                if (this.id == textViewId) {
-                    if (this.textSize == textSize) {
-                        if (this.parent is LinearLayout) {
-                            val parentView = (this.parent as LinearLayout)
-                            if (parentView::class.java.name == parentViewClassName) {
-                                if (parentViewId == parentView.id) {
-                                    if (index == XposedOwnSP.config.index) {
-                                        return true
-                                    } else {
-                                        index += 1
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        return false
     }
 
     private fun String.regexReplace(pattern: String, newString: String): String {

@@ -87,7 +87,8 @@ import statusbar.lyric.tools.Tools.ifNotNull
 import statusbar.lyric.tools.Tools.isLandscape
 import statusbar.lyric.tools.Tools.isNot
 import statusbar.lyric.tools.Tools.isNotNull
-import statusbar.lyric.tools.Tools.isTargetView
+import statusbar.lyric.runtime.TargetViewMatcher
+import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.tools.Tools.observableChange
 import statusbar.lyric.tools.Tools.shell
 import statusbar.lyric.tools.XiaomiUtils.isHyperOS
@@ -233,6 +234,7 @@ class SystemUILyric : BaseHook() {
     private var centralSurfacesImpl: Any? = null
     private var notificationIconArea: View? = null
     private var statusBatteryContainer: View? = null
+    private val targetViewMatcher = TargetViewMatcher()
 
     @SuppressLint("DiscouragedApi", "NewApi")
     override fun init() {
@@ -252,27 +254,25 @@ class SystemUILyric : BaseHook() {
                     after { hookParam ->
                         if (!canLoad) return@after
 
-                        val view = (hookParam.thisObject as View)
-                        if (view.isTargetView()) {
-                            clockView = view as TextView
-                            targetView = (clockView.parent as LinearLayout).apply {
-                                gravity = Gravity.CENTER
-                            }
-                            canLoad = false
-                            lyricInit()
-                        }
+                        val view = hookParam.thisObject as? TextView ?: return@after
+                        val match = targetViewMatcher.match(view, currentTargetViewSpec()) ?: return@after
+                        val parent = match.parent as? LinearLayout ?: return@after
+                        clockView = view
+                        targetView = parent.apply { gravity = Gravity.CENTER }
+                        canLoad = false
+                        lyricInit()
                     }
                 }
 
             View::class.java.methodFinder().filterByName("onDetachedFromWindow").single()
                 .createHook {
                     after { hookParam ->
-                        val view = (hookParam.thisObject as View)
-                        if (view.isTargetView()) {
-                            "Running onDetachedFromWindow".log()
-                            canLoad = true
-                            updateLyricState(showLyric = false, showFocus = false)
-                        }
+                        val view = hookParam.thisObject as? View ?: return@after
+                        targetViewMatcher.forget(view, view.parent as? ViewGroup)
+                        if (!isReady || clockView !== view) return@after
+                        "Running onDetachedFromWindow".log()
+                        canLoad = true
+                        updateLyricState(showLyric = false, showFocus = false)
                     }
                 }
 
@@ -557,6 +557,15 @@ class SystemUILyric : BaseHook() {
             }
         }
     }
+
+    private fun currentTargetViewSpec() = TargetViewSpec(
+        textViewClassName = config.textViewClassName,
+        textViewId = config.textViewId,
+        parentViewClassName = config.parentViewClassName,
+        parentViewId = config.parentViewId,
+        expectedTextSizePx = config.textSize,
+        targetIndex = config.index
+    )
 
     private fun canShowLyric(): Boolean {
         return isMusicPlaying && !FocusNotifyController.isOS1FocusNotifyShowing && !FocusNotifyController.isInteraction
