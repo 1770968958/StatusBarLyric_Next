@@ -67,6 +67,7 @@ import statusbar.lyric.hook.module.xiaomi.FocusNotifyController
 import statusbar.lyric.hook.module.xiaomi.XiaomiHooks
 import statusbar.lyric.tools.BlurTools.cornerRadius
 import statusbar.lyric.tools.BlurTools.setBackgroundBlur
+import statusbar.lyric.tools.LogTools
 import statusbar.lyric.tools.LogTools.log
 import statusbar.lyric.tools.LyricViewTools
 import statusbar.lyric.tools.LyricViewTools.cancelAnimation
@@ -108,7 +109,7 @@ class SystemUILyric : BaseHook() {
     private var lastLyricDelay: Int = 0
     private var lastColor: Int by observableChange(Color.WHITE) { oldValue, newValue ->
         if (oldValue == newValue) return@observableChange
-        "Changing Color: $newValue".log()
+        LogTools.log { "Changing Color: $newValue" }
         goMainThread {
             val appearance = currentAppearanceSnapshot()
             if (appearance.usesDynamicLyricColor) {
@@ -457,7 +458,7 @@ class SystemUILyric : BaseHook() {
                                                         updateLyricState(showLyric = false)
                                                         autoHideStatusBarInFullScreenModeIfNeed()
                                                     }
-                                                    "Change to hide LyricView: $isHiding".log()
+                                                    LogTools.log { "Change to hide LyricView: $isHiding" }
                                                 }
                                             }
                                         }
@@ -754,7 +755,9 @@ class SystemUILyric : BaseHook() {
                         lastAlbum = album
                         scheduleTitleOnce(packageName, data)
 
-                        ("Title: " + data.title.orEmpty() + ", Artist: " + lastArtist + ", Album: " + lastAlbum).log()
+                        LogTools.log {
+                            "Title: ${data.title.orEmpty()}, Artist: $lastArtist, Album: $lastAlbum"
+                        }
                     }
 
                     isMusicPlaying = true
@@ -823,7 +826,7 @@ class SystemUILyric : BaseHook() {
                 val lyricWidth = getLyricWidth(lyric)
                 width = lyricWidth
                 val i = theoreticalWidth - lyricWidth
-                "Lyric width: $lyricWidth, Theoretical width: $theoreticalWidth, i: $i".log()
+                LogTools.log { "Lyric width: $lyricWidth, Theoretical width: $theoreticalWidth, i: $i" }
                 if (i > 0 && lyricWidth > 0) {
                     if (delay > 0) {
                         val durationInSeconds = delay / 1000f
@@ -831,13 +834,13 @@ class SystemUILyric : BaseHook() {
                             val speed = 0.3f + (i.toFloat() / lyricWidth) * (5f / durationInSeconds)
                             val boundedSpeed = speed.coerceIn(0.3f, 5.0f)
                             setScrollSpeed(boundedSpeed)
-                            "Delay mode - Duration: ${durationInSeconds}, Speed: $boundedSpeed".log()
+                            LogTools.log { "Delay mode - Duration: $durationInSeconds, Speed: $boundedSpeed" }
                         }
                     } else if (currentAppearanceSnapshot().dynamicLyricSpeed) {
                         val proportion = i.toFloat() / lyricWidth.toFloat()
                         val speed = 10f * proportion + 0.7f
                         setScrollSpeed(speed)
-                        "Dynamic mode - Proportion: $proportion, Speed: $speed".log()
+                        LogTools.log { "Dynamic mode - Proportion: $proportion, Speed: $speed" }
                     }
                 } else {
                     setScrollSpeed(currentAppearanceSnapshot().lyricSpeed)
@@ -1059,7 +1062,7 @@ class SystemUILyric : BaseHook() {
     inner class ScreenLockReceiver : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             isScreenLocked = intent.action == Intent.ACTION_SCREEN_OFF
-            "isScreenLocked: $isScreenLocked".log()
+            LogTools.log { "isScreenLocked: $isScreenLocked" }
             if (isScreenLocked) {
                 updateLyricState(showLyric = false)
             } else {
