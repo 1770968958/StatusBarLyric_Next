@@ -25,28 +25,36 @@ package statusbar.lyric.tools
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import statusbar.lyric.BuildConfig
 import statusbar.lyric.data.Data
 import statusbar.lyric.tools.LogTools.log
 
 @SuppressLint("StaticFieldLeak")
 object ActivityTestTools {
+    private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+    private const val EXTRA_REQUEST_ID = "RequestId"
 
-    fun Context.getClass() {
+    fun Context.getClass(requestId: Long) {
         this.sendBroadcast(Intent("TestReceiver").apply {
+            setPackage(SYSTEM_UI_PACKAGE)
             putExtra("Type", "GetClass")
+            putExtra(EXTRA_REQUEST_ID, requestId)
             "GetClass".log()
         })
     }
 
-    fun Context.receiveClass(dataList: ArrayList<Data>) {
+    fun Context.receiveClass(dataList: ArrayList<Data>, requestId: Long) {
         sendBroadcast(Intent("AppTestReceiver").apply {
+            setPackage(BuildConfig.APPLICATION_ID)
             putExtra("Type", "ReceiveClass")
-            putExtra("DataList", dataList)
+            putExtra(EXTRA_REQUEST_ID, requestId)
+            putParcelableArrayListExtra("DataList", dataList)
         })
     }
 
     fun Context.showView(data: Data) {
         sendBroadcast(Intent("TestReceiver").apply {
+            setPackage(SYSTEM_UI_PACKAGE)
             putExtra("Type", "ShowView")
             putExtra("Data", data)
         })

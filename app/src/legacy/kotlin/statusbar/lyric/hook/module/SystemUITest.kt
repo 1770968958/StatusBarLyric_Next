@@ -210,13 +210,14 @@ class SystemUITest : BaseHook() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.getStringExtra("Type")) {
                 "GetClass" -> {
+                    val requestId = intent.getLongExtra("RequestId", Long.MIN_VALUE)
                     if (dataHashMap.isEmpty()) {
                         moduleRes.getString(R.string.no_text_view).log()
-                        context.receiveClass(arrayListOf())
+                        context.receiveClass(arrayListOf(), requestId)
                         return
                     } else {
                         moduleRes.getString(R.string.send_text_view_class).format(dataHashMap).log()
-                        context.receiveClass(ArrayList(dataHashMap.values))
+                        context.receiveClass(ArrayList(dataHashMap.values), requestId)
                     }
                 }
 

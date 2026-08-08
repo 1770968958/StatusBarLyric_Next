@@ -150,8 +150,8 @@ class Api101SystemUITest(
         }
     }
 
-    private fun sendCandidates(context: Context) {
-        context.receiveClass(ArrayList(candidates.values))
+    private fun sendCandidates(context: Context, requestId: Long) {
+        context.receiveClass(ArrayList(candidates.values), requestId)
         module.log(Log.INFO, TAG, "API101 anchor candidates sent; count=${candidates.size}")
     }
 
@@ -182,7 +182,7 @@ class Api101SystemUITest(
     private val testReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.getStringExtra(EXTRA_TYPE)) {
-                TYPE_GET_CLASS -> sendCandidates(context)
+                TYPE_GET_CLASS -> sendCandidates(context, intent.getLongExtra(EXTRA_REQUEST_ID, NO_REQUEST_ID))
                 TYPE_SHOW_VIEW -> readData(intent)?.let(::previewCandidate)
             }
         }
@@ -221,8 +221,10 @@ class Api101SystemUITest(
         const val ACTION_TEST_RECEIVER = "TestReceiver"
         const val EXTRA_TYPE = "Type"
         const val EXTRA_DATA = "Data"
+        const val EXTRA_REQUEST_ID = "RequestId"
         const val TYPE_GET_CLASS = "GetClass"
         const val TYPE_SHOW_VIEW = "ShowView"
+        const val NO_REQUEST_ID = Long.MIN_VALUE
 
     }
 }

@@ -60,7 +60,7 @@ object ModuleRuntimeBridge {
                     val remote = service.getRemotePreferences(Config.CONFIG_NAME)
                     remotePreferences = remote
                     activeService = service
-                    copyMissingValues(ActivityOwnSP.ownSP, remote)
+                    replaceRemoteValues(ActivityOwnSP.ownSP, remote)
                     notifyActivation(true)
                     Log.i(TAG, "API101 Xposed service connected; Remote Preferences are writable")
                 }.onFailure { throwable ->
@@ -84,16 +84,18 @@ object ModuleRuntimeBridge {
         })
     }
 
-    private fun copyMissingValues(local: SharedPreferences, remote: SharedPreferences) {
+    /**
+     * The module application owns configuration. Replacing the remote snapshot on
+     * every service bind prevents an older Remote Preferences file from pinning a
+     * stale anchor or appearance after the user changed it in the application.
+     */
+    private fun replaceRemoteValues(local: SharedPreferences, remote: SharedPreferences) {
         val editor = remote.edit()
-        var changed = false
+        editor.clear()
         local.all.forEach { (key, value) ->
-            if (!remote.contains(key)) {
-                putValue(editor, key, value)
-                changed = true
-            }
+            putValue(editor, key, value)
         }
-        if (changed) editor.apply()
+        editor.apply()
     }
 
     private fun putValue(editor: SharedPreferences.Editor, key: String, value: Any?) {
