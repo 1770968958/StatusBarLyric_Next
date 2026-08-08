@@ -87,8 +87,8 @@ import statusbar.lyric.tools.Tools.isNotNull
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.icon.IconBitmapDecoder
+import statusbar.lyric.runtime.input.MediaKeyDispatcher
 import statusbar.lyric.tools.Tools.observableChange
-import statusbar.lyric.tools.Tools.shell
 import statusbar.lyric.tools.XiaomiUtils.isHyperOS
 import statusbar.lyric.view.LyricSwitchView
 import statusbar.lyric.view.TitleDialog
@@ -231,6 +231,7 @@ class SystemUILyric : BaseHook() {
     private var notificationIconArea: View? = null
     private var statusBatteryContainer: View? = null
     private val targetViewMatcher = TargetViewMatcher()
+    private val mediaKeyDispatcher by lazy { MediaKeyDispatcher(context) }
     private val observedTargetViews = Collections.newSetFromMap(WeakHashMap<TextView, Boolean>())
     private val targetAttachStateListener = object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(view: View) {
@@ -388,9 +389,9 @@ class SystemUILyric : BaseHook() {
                                                     moduleRes.getString(R.string.slide_status_bar_cut_songs)
                                                         .log()
                                                     if (i > 0) {
-                                                        shell("input keyevent 87", false)
+                                                        mediaKeyDispatcher.next()
                                                     } else {
-                                                        shell("input keyevent 88", false)
+                                                        mediaKeyDispatcher.previous()
                                                     }
                                                     hookParam.result = true
                                                 }
@@ -407,7 +408,7 @@ class SystemUILyric : BaseHook() {
 
                                                 moduleRes.getString(R.string.long_click_status_bar_stop)
                                                     .log()
-                                                shell("input keyevent 85", false)
+                                                mediaKeyDispatcher.playPause()
                                                 hookParam.result = true
                                             }
                                         }

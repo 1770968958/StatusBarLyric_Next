@@ -33,12 +33,10 @@ import android.graphics.PorterDuff
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -54,6 +52,7 @@ import statusbar.lyric.config.XposedOwnSP
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.icon.IconBitmapDecoder
+import statusbar.lyric.runtime.input.MediaKeyDispatcher
 import statusbar.lyric.tools.BlurTools.cornerRadius
 import statusbar.lyric.tools.BlurTools.setBackgroundBlur
 import statusbar.lyric.tools.LyricViewTools
@@ -96,6 +95,7 @@ class Api101SystemUIHook(
     private val systemUiTest = Api101SystemUITest(module)
     private val lyricDisplayState = Api101LyricDisplayState()
     private val targetViewMatcher = TargetViewMatcher()
+    private var mediaKeyDispatcher: MediaKeyDispatcher? = null
     private val iconDecodeGeneration = AtomicLong(0L)
     private val iconDecodeExecutor = Executors.newSingleThreadExecutor { runnable ->
         Thread(runnable, "StatusBarLyric-Api101-IconDecode")
@@ -123,7 +123,6 @@ class Api101SystemUIHook(
     private var focusedNotificationController: Any? = null
     private var focusedNotificationShowing = false
     private var touchDownPoint: PointF? = null
-    private var systemUiContext: Context? = null
     private var timeoutRunnable: Runnable? = null
     private var mountedTarget: View? = null
     private var mountedParent: ViewGroup? = null
@@ -208,7 +207,7 @@ class Api101SystemUIHook(
     }
 
     fun onApplicationAttached(context: Context, classLoader: ClassLoader) {
-        systemUiContext = context
+        mediaKeyDispatcher = MediaKeyDispatcher(context)
         registerConfigObserver()
         if (!XposedOwnSP.config.masterSwitch) {
             module.log(android.util.Log.INFO, TAG, "API101 SystemUI hook skipped because masterSwitch is off")
@@ -396,7 +395,11 @@ class Api101SystemUIHook(
                     vertical <= XposedOwnSP.config.slideStatusBarCutSongsYRadius
                 ) {
                     if (abs(horizontal) > XposedOwnSP.config.slideStatusBarCutSongsXRadius) {
-                        dispatchMediaKey(if (horizontal > 0f) KeyEvent.KEYCODE_MEDIA_NEXT else KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                        if (horizontal > 0f) {
+                            mediaKeyDispatcher?.next()
+                        } else {
+                            mediaKeyDispatcher?.previous()
+                        }
                         return true
                     }
                     return false
@@ -404,7 +407,7 @@ class Api101SystemUIHook(
                 if (!moved && event.eventTime - event.downTime > LONG_CLICK_MILLIS &&
                     XposedOwnSP.config.longClickStatusBarStop
                 ) {
-                    dispatchMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                    mediaKeyDispatcher?.playPause()
                     return true
                 }
                 if (!moved && XposedOwnSP.config.clickStatusBarToHideLyric && isTouchInsideLyric(event)) {
@@ -420,12 +423,6 @@ class Api101SystemUIHook(
         val layout = lyricLayout ?: return false
         return event.x >= layout.left && event.x <= layout.right &&
             event.y >= layout.top && event.y <= layout.bottom
-    }
-
-    private fun dispatchMediaKey(keyCode: Int) {
-        val audioManager = systemUiContext?.getSystemService(AudioManager::class.java) ?: return
-        audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
-        audioManager.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_UP, keyCode))
     }
 
     private fun registerXiaomiHooks(classLoader: ClassLoader) {
