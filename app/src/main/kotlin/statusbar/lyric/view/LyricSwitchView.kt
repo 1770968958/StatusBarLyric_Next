@@ -30,12 +30,16 @@ import android.graphics.drawable.Drawable
 import android.widget.TextSwitcher
 
 open class LyricSwitchView(context: Context) : TextSwitcher(context) {
+    private var appliedWidth = Int.MIN_VALUE
 
     init {
         initialize()
     }
 
     private fun initialize() {
+        layoutTransition = LayoutTransition().apply {
+            enableTransitionType(LayoutTransition.CHANGING)
+        }
         setFactory {
             LyricTextView(context).apply {
                 layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT)
@@ -50,9 +54,13 @@ open class LyricSwitchView(context: Context) : TextSwitcher(context) {
     }
 
     fun setWidth(width: Int) {
-        layoutTransition = LayoutTransition()
-        layoutTransition.enableTransitionType(LayoutTransition.CHANGING)
-        applyToAllViews { it.width = width }
+        if (appliedWidth == width) return
+        appliedWidth = width
+        applyToAllViews {
+            if (it.width != width) {
+                it.width = width
+            }
+        }
     }
 
     fun setTextColor(color: Int) {
@@ -64,7 +72,8 @@ open class LyricSwitchView(context: Context) : TextSwitcher(context) {
     }
 
     override fun setBackground(background: Drawable?) {
-        applyToAllViews { it.background = background }
+        if (this.background === background) return
+        super.setBackground(background)
     }
 
     fun setScrollSpeed(speed: Float) {
@@ -94,6 +103,13 @@ open class LyricSwitchView(context: Context) : TextSwitcher(context) {
     fun setMargins(start: Int, top: Int, end: Int, bottom: Int) {
         applyToAllViews {
             val layoutParams = it.layoutParams as MarginLayoutParams
+            if (layoutParams.leftMargin == start &&
+                layoutParams.topMargin == top &&
+                layoutParams.rightMargin == end &&
+                layoutParams.bottomMargin == bottom
+            ) {
+                return@applyToAllViews
+            }
             layoutParams.setMargins(start, top, end, bottom)
             it.layoutParams = layoutParams
         }
