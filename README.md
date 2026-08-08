@@ -58,8 +58,8 @@ StatusBarLyric_Next 是一个用于在 Android 状态栏显示歌词的 LSPosed 
 1. 下载 APK 并安装。
 2. 在 LSPosed 中启用模块。
 3. 勾选 SystemUI 相关作用域。
-4. 重启 SystemUI 或重启手机。
-5. 打开模块应用，根据需要调整歌词样式。
+4. 打开模块应用，在锚点选择界面绑定挂载。
+5. 重启systemui后关闭锚点选择模式。
 6. 播放音乐并确认歌词来源支持 SuperLyricApi。
 
 ## 说明
