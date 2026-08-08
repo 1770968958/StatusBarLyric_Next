@@ -634,6 +634,11 @@ class Api101SystemUIHook(
 
                 mountedTarget = view
                 mountedParent = parent
+                source.post {
+                    if (mountedTarget === source) {
+                        applyConfiguration(source)
+                    }
+                }
                 if (isMusicPlaying && pendingLyric.isNotEmpty()) {
                     showLyric(pendingLyric, pendingDelay)
                 }
@@ -885,7 +890,6 @@ class Api101SystemUIHook(
         }
         if (XposedOwnSP.config.mMiuiHideNetworkSpeed) miuiNetworkSpeedView?.visibility = View.GONE
         if (XposedOwnSP.config.hideCarrier) miuiCarrierLabel?.visibility = View.GONE
-        applyConfiguration()
 
         val width = getLyricWidth(lyric, parent)
         lyricDisplay.setWidth(width)
@@ -1014,7 +1018,7 @@ class Api101SystemUIHook(
             return
         }
         icon.setImageBitmap(bitmap)
-        applyConfiguration()
+        icon.visibility = View.VISIBLE
     }
 
     private fun parseColor(value: String): Int? {
