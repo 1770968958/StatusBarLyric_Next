@@ -674,72 +674,77 @@ class SystemUILyric : BaseHook() {
             defaultIcon = { config.getDefaultIcon(publisher) }
         )
 
+    private fun handleSuperLyricStop(packageName: String) {
+        if (!isReady) return
+        if (playingApp.isNotEmpty() && playingApp != packageName) return
+
+        lastLyric = ""
+        lastLyricDelay = 0
+        playingApp = ""
+        isMusicPlaying = false
+        pendingTitlePublisher = ""
+        pendingTitleData = null
+        titleDisplayTask.cancel()
+        timeoutRestoreTask.cancel()
+        updateLyricState(showLyric = false)
+    }
+
+    private fun handleSuperLyric(packageName: String, data: SuperLyricData) {
+        if (!isReady) return
+
+        val lyricLine = data.lyric ?: return
+        val lyric = lyricLine.text
+        if (lyric.isEmpty()) return
+
+        val delay = lyricLine.delay.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val artist = data.artist.orEmpty()
+        val album = data.album.orEmpty()
+        val metadataChanged = lastArtist != artist || lastAlbum != album
+        val incomingIcon = resolveIconBase64(data, packageName)
+        val sameLyricEvent = isMusicPlaying &&
+            playingApp == packageName &&
+            lastLyric == lyric &&
+            lastLyricDelay == delay &&
+            !isHiding &&
+            (!config.titleSwitch || !metadataChanged) &&
+            (!iconSwitch || lastBase64Icon == incomingIcon)
+
+        if (sameLyricEvent) {
+            refreshTimeoutRestore()
+            return
+        }
+
+        playingApp = packageName
+        if (config.titleSwitch && metadataChanged) {
+            lastArtist = artist
+            lastAlbum = album
+            scheduleTitleOnce(packageName, data)
+            LogTools.log {
+                "Title: ${data.title.orEmpty()}, Artist: $lastArtist, Album: $lastAlbum"
+            }
+        }
+
+        isMusicPlaying = true
+        lastLyric = lyric
+        lastLyricDelay = delay
+        changeIcon(incomingIcon)
+        updateLyricState(delay = delay)
+        refreshTimeoutRestore()
+    }
+
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     private fun registerSuperLyric(context: Context) {
         runCatching {
             SuperLyricHelper.registerReceiver(object : ISuperLyricReceiver.Stub() {
                 override fun onStop(publisher: String?, data: SuperLyricData?) {
-                    if (!isReady) return
-
                     val packageName = publisher.orEmpty()
-                    if (playingApp.isNotEmpty() && playingApp != packageName) return
-
-                    lastLyric = ""
-                    lastLyricDelay = 0
-                    playingApp = ""
-                    isMusicPlaying = false
-                    pendingTitlePublisher = ""
-                    pendingTitleData = null
-                    titleDisplayTask.cancel()
-                    timeoutRestoreTask.cancel()
-                    updateLyricState(showLyric = false)
+                    handler.post { handleSuperLyricStop(packageName) }
                 }
 
                 override fun onLyric(publisher: String?, data: SuperLyricData?) {
-                    if (data == null) return
-                    if (!isReady) return
-
+                    val lyricData = data ?: return
                     val packageName = publisher.orEmpty()
-                    val lyricLine = data.lyric ?: return
-                    val lyric = lyricLine.text
-                    if (lyric.isEmpty()) return
-
-                    val delay = lyricLine.delay.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-                    val artist = data.artist.orEmpty()
-                    val album = data.album.orEmpty()
-                    val metadataChanged = lastArtist != artist || lastAlbum != album
-                    val incomingIcon = resolveIconBase64(data, packageName)
-                    val sameLyricEvent = isMusicPlaying &&
-                        playingApp == packageName &&
-                        lastLyric == lyric &&
-                        lastLyricDelay == delay &&
-                        !isHiding &&
-                        (!config.titleSwitch || !metadataChanged) &&
-                        (!iconSwitch || lastBase64Icon == incomingIcon)
-
-                    if (sameLyricEvent) {
-                        refreshTimeoutRestore()
-                        return
-                    }
-
-                    playingApp = packageName
-                    if (config.titleSwitch && metadataChanged) {
-                        lastArtist = artist
-                        lastAlbum = album
-                        scheduleTitleOnce(packageName, data)
-
-                        LogTools.log {
-                            "Title: ${data.title.orEmpty()}, Artist: $lastArtist, Album: $lastAlbum"
-                        }
-                    }
-
-                    isMusicPlaying = true
-                    lastLyric = lyric
-                    lastLyricDelay = delay
-                    changeIcon(incomingIcon)
-
-                    updateLyricState(delay = delay)
-                    refreshTimeoutRestore()
+                    handler.post { handleSuperLyric(packageName, lyricData) }
                 }
             })
         }.onFailure {
