@@ -35,11 +35,10 @@ import android.view.View
 import android.widget.Toast
 import statusbar.lyric.BuildConfig
 import statusbar.lyric.MainActivity
+import statusbar.lyric.reflection.ReflectionUtils
 import statusbar.lyric.tools.ActivityTools.isHook
 import statusbar.lyric.tools.LogTools.log
 import java.io.DataOutputStream
-import java.lang.reflect.Field
-import java.lang.reflect.Method
 import java.util.Locale
 import java.util.Objects
 import java.util.regex.Pattern
@@ -195,84 +194,25 @@ object Tools {
 
     fun Any?.isNotNull() = this != null
 
-    private fun findField(clazz: Class<*>, fieldName: String): Field? {
-        var current: Class<*>? = clazz
-        while (current != null) {
-            try {
-                return current.getDeclaredField(fieldName)
-            } catch (_: NoSuchFieldException) {
-                current = current.superclass
-            }
-        }
-        return null
-    }
-
-    private fun isCompatible(parameterType: Class<*>, argument: Any?): Boolean {
-        if (argument == null) return !parameterType.isPrimitive
-        if (!parameterType.isPrimitive) return parameterType.isAssignableFrom(argument.javaClass)
-        return when (parameterType) {
-            Boolean::class.javaPrimitiveType -> argument is Boolean
-            Byte::class.javaPrimitiveType -> argument is Byte
-            Char::class.javaPrimitiveType -> argument is Char
-            Short::class.javaPrimitiveType -> argument is Short
-            Int::class.javaPrimitiveType -> argument is Int
-            Long::class.javaPrimitiveType -> argument is Long
-            Float::class.javaPrimitiveType -> argument is Float
-            Double::class.javaPrimitiveType -> argument is Double
-            else -> false
-        }
-    }
-
-    private fun findMethod(clazz: Class<*>, methodName: String, args: Array<out Any>): Method? {
-        var current: Class<*>? = clazz
-        while (current != null) {
-            val method = current.declaredMethods.firstOrNull {
-                it.name == methodName &&
-                    it.parameterTypes.size == args.size &&
-                    it.parameterTypes.zip(args).all { (type, argument) -> isCompatible(type, argument) }
-            }
-            if (method != null) return method
-            current = current.superclass
-        }
-        return null
-    }
-
     fun Any.getObjectField(fieldName: String): Any? {
-        val field = findField(javaClass, fieldName)
+        val field = ReflectionUtils.findField(javaClass, fieldName)
             ?: throw NoSuchFieldException("$fieldName on ${javaClass.name}")
         field.isAccessible = true
         return field.get(this)
     }
 
     fun Any.getSuperObjectField(fieldName: String): Any? {
-        var clazz: Class<*>? = this.javaClass
-        var field: Field? = null
-
-        do {
-            try {
-                field = clazz?.getDeclaredField(fieldName)
-                break
-            } catch (_: Throwable) {
-            }
-
-            clazz = clazz?.superclass
-            if (clazz == null) break
-        } while (true)
-
-        field.isNotNull {
-            it.isAccessible = true
-            return it.get(this)
-        }
-        return null
+        val field = ReflectionUtils.findField(javaClass, fieldName) ?: return null
+        return runCatching { field.get(this) }.getOrNull()
     }
 
     fun Any?.existField(fieldName: String): Boolean {
         if (this == null) return false
-        return findField(javaClass, fieldName) != null
+        return ReflectionUtils.hasField(javaClass, fieldName)
     }
 
     fun Any?.existMethod(methodName: String): Boolean {
-        return this?.javaClass?.declaredMethods?.any { it.name == methodName } == true
+        return this?.let { ReflectionUtils.hasMethod(it.javaClass, methodName) } == true
     }
 
     fun Any.getObjectFieldIfExist(fieldName: String): Any? {
@@ -284,14 +224,14 @@ object Tools {
     }
 
     fun Any.setObjectField(fieldName: String, value: Any?) {
-        val field = findField(javaClass, fieldName)
+        val field = ReflectionUtils.findField(javaClass, fieldName)
             ?: throw NoSuchFieldException("$fieldName on ${javaClass.name}")
         field.isAccessible = true
         field.set(this, value)
     }
 
     fun Any.callMethod(methodName: String, vararg args: Any): Any? {
-        val method = findMethod(javaClass, methodName, args)
+        val method = ReflectionUtils.findCompatibleMethod(javaClass, methodName, args)
             ?: throw NoSuchMethodException("$methodName on ${javaClass.name}")
         method.isAccessible = true
         return method.invoke(this, *args)

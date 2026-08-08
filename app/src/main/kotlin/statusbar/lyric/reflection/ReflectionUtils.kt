@@ -1,5 +1,6 @@
 package statusbar.lyric.reflection
 
+import java.lang.reflect.Field
 import java.lang.reflect.Method
 import java.util.Optional
 import java.util.concurrent.ConcurrentHashMap
@@ -13,6 +14,7 @@ object ReflectionUtils {
     private val countMethodCache = ConcurrentHashMap<CountMethodKey, Optional<Method>>()
     private val nameMethodCache = ConcurrentHashMap<NameMethodKey, Optional<Method>>()
     private val compatibleMethodCache = ConcurrentHashMap<CompatibleMethodKey, Optional<Method>>()
+    private val fieldCache = ConcurrentHashMap<FieldKey, Optional<Field>>()
 
     fun findMethod(clazz: Class<*>, name: String, parameterCount: Int): Method? {
         val key = CountMethodKey(clazz, name, parameterCount)
@@ -32,6 +34,28 @@ object ReflectionUtils {
         }.orElse(null)
     }
 
+
+    fun findField(clazz: Class<*>, name: String): Field? {
+        val key = FieldKey(clazz, name)
+        return fieldCache.computeIfAbsent(key) {
+            Optional.ofNullable(scanField(clazz, name))
+        }.orElse(null)
+    }
+
+    fun getFieldValue(instance: Any, name: String): Any? {
+        val field = findField(instance.javaClass, name) ?: return null
+        return runCatching { field.get(instance) }.getOrNull()
+    }
+
+    fun getIntFieldValue(instance: Any, name: String): Int? {
+        val field = findField(instance.javaClass, name) ?: return null
+        return runCatching { field.getInt(instance) }.getOrNull()
+    }
+
+    fun hasField(clazz: Class<*>, name: String): Boolean = findField(clazz, name) != null
+
+    fun hasMethod(clazz: Class<*>, name: String): Boolean = findMethodByName(clazz, name) != null
+
     fun findCompatibleMethod(clazz: Class<*>, name: String, args: Array<out Any?>): Method? {
         val key = CompatibleMethodKey(clazz, name, args.map { it?.javaClass })
         return compatibleMethodCache.computeIfAbsent(key) {
@@ -48,6 +72,20 @@ object ReflectionUtils {
         val method = findCompatibleMethod(instance.javaClass, name, args) ?: return false
         method.invoke(instance, *args)
         return true
+    }
+
+    private fun scanField(clazz: Class<*>, name: String): Field? {
+        var current: Class<*>? = clazz
+        while (current != null) {
+            val searchClass = current
+            val field = runCatching { searchClass.getDeclaredField(name) }.getOrNull()
+            if (field != null) {
+                runCatching { field.isAccessible = true }
+                return field
+            }
+            current = current.superclass
+        }
+        return null
     }
 
     private fun scanMethods(clazz: Class<*>, predicate: (Method) -> Boolean): Method? {
@@ -211,5 +249,10 @@ object ReflectionUtils {
         val clazz: Class<*>,
         val name: String,
         val argumentTypes: List<Class<*>?>
+    )
+
+    private data class FieldKey(
+        val clazz: Class<*>,
+        val name: String
     )
 }

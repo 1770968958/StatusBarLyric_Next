@@ -53,6 +53,8 @@ import statusbar.lyric.reflection.ReflectionUtils.callNoArg
 import statusbar.lyric.reflection.ReflectionUtils.callWithArgs
 import statusbar.lyric.reflection.ReflectionUtils.findMethod
 import statusbar.lyric.reflection.ReflectionUtils.findMethodByName
+import statusbar.lyric.reflection.ReflectionUtils.getFieldValue
+import statusbar.lyric.reflection.ReflectionUtils.getIntFieldValue
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.ViewVisibilityOverrideState
 import statusbar.lyric.runtime.TargetViewSpec
@@ -1096,31 +1098,11 @@ class Api101SystemUIHook(
     }
 
     private fun findObjectField(instance: Any?, name: String): Any? {
-        var current = instance?.javaClass ?: return null
-        while (current != Any::class.java) {
-            current.declaredFields.firstOrNull { it.name == name }?.let { field ->
-                return runCatching {
-                    field.isAccessible = true
-                    field.get(instance)
-                }.getOrNull()
-            }
-            current = current.superclass ?: return null
-        }
-        return null
+        return instance?.let { getFieldValue(it, name) }
     }
 
     private fun findIntField(instance: Any?, name: String): Int? {
-        var current = instance?.javaClass ?: return null
-        while (current != Any::class.java) {
-            current.declaredFields.firstOrNull { it.name == name }?.let { field ->
-                return runCatching {
-                    field.isAccessible = true
-                    field.getInt(instance)
-                }.getOrNull()
-            }
-            current = current.superclass ?: return null
-        }
-        return null
+        return instance?.let { getIntFieldValue(it, name) }
     }
 
     private class TargetViewHooker(
