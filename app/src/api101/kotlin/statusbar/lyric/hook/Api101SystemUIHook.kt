@@ -50,6 +50,7 @@ import statusbar.lyric.reflection.ReflectionUtils.findMethodByName
 import statusbar.lyric.reflection.ReflectionUtils.getFieldValue
 import statusbar.lyric.reflection.ReflectionUtils.getIntFieldValue
 import statusbar.lyric.runtime.LyricLayoutCalculator
+import statusbar.lyric.runtime.LyricIconResolver
 import statusbar.lyric.runtime.LyricRuntimeController
 import statusbar.lyric.runtime.LyricRuntimeEvent
 import statusbar.lyric.runtime.LyricRuntimePolicy
@@ -140,6 +141,7 @@ class Api101SystemUIHook(
     private var miuiPadClockView: View?
         get() = miuiPadClockViewRef?.get()
         set(value) { miuiPadClockViewRef = value?.let(::WeakReference) }
+    private var miuiPadClockHiddenForLyric = false
     private var miuiCarrierLabelRef: WeakReference<View>? = null
     private var miuiCarrierLabel: View?
         get() = miuiCarrierLabelRef?.get()

@@ -28,6 +28,8 @@ import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.icu.text.SimpleDateFormat
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.View
 import android.widget.Toast

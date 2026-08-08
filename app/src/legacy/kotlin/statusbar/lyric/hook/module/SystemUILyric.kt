@@ -78,6 +78,7 @@ import statusbar.lyric.tools.Tools.ifNotNull
 import statusbar.lyric.tools.Tools.isNot
 import statusbar.lyric.tools.Tools.isNotNull
 import statusbar.lyric.runtime.InternalBroadcasts
+import statusbar.lyric.runtime.LyricIconResolver
 import statusbar.lyric.runtime.LyricLayoutCalculator
 import statusbar.lyric.runtime.LyricRuntimeController
 import statusbar.lyric.runtime.LyricRuntimeEvent
