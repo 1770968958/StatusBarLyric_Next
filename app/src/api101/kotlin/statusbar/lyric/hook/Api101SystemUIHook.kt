@@ -6,7 +6,8 @@
  * This software is free opensource software: you can redistribute it
  * and/or modify it under the terms of the GNU General Public License
  * as published by the Free Software Foundation; either
- * version 3 of the License, or (at your option) any later version.
+ * version 3 of the License, or any later version and our eula as
+ * published by Block-Network contributors.
  *
  * This software is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -14,8 +15,9 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this software.  If not, see
- * <https://www.gnu.org/licenses/>.
+ * and eula along with this software.  If not, see
+ * <https://www.gnu.org/licenses/>
+ * <https://github.com/Block-Network/StatusBarLyric/blob/main/LICENSE>.
  */
 
 package statusbar.lyric.hook
@@ -24,14 +26,15 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.media.AudioManager
 import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.LinearGradient
+import android.graphics.PointF
 import android.graphics.PorterDuff
 import android.graphics.Shader
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
@@ -50,19 +53,18 @@ import com.hchen.superlyricapi.SuperLyricHelper
 import io.github.libxposed.api.XposedInterface
 import io.github.libxposed.api.XposedModule
 import statusbar.lyric.config.XposedOwnSP
+import statusbar.lyric.tools.BlurTools.cornerRadius
+import statusbar.lyric.tools.BlurTools.setBackgroundBlur
 import statusbar.lyric.tools.LyricViewTools
 import statusbar.lyric.tools.LyricViewTools.cancelAnimation
 import statusbar.lyric.tools.LyricViewTools.hideView
 import statusbar.lyric.tools.LyricViewTools.randomAnima
 import statusbar.lyric.tools.LyricViewTools.showView
-import statusbar.lyric.tools.BlurTools.cornerRadius
-import statusbar.lyric.tools.BlurTools.setBackgroundBlur
 import statusbar.lyric.tools.XiaomiUtils.isHyperOS
 import statusbar.lyric.tools.XiaomiUtils.isXiaomi
 import statusbar.lyric.view.LyricSwitchView
 import statusbar.lyric.view.TitleDialog
 import java.io.File
-import android.graphics.PointF
 import java.lang.reflect.Method
 import java.util.IdentityHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -108,6 +110,7 @@ class Api101SystemUIHook(
     private var systemIconsContainer: View? = null
     private var miuiNetworkSpeedView: View? = null
     private var miuiPadClockView: View? = null
+    private var miuiPadClockHiddenForLyric = false
     private var miuiCarrierLabel: View? = null
     private var miuiNotificationBigTime: View? = null
     private var focusedNotificationController: Any? = null
@@ -490,6 +493,10 @@ class Api101SystemUIHook(
 
     private fun captureXiaomiPadClock(instance: Any?) {
         miuiPadClockView = findObjectField(instance, "mPadClockView") as? View
+        if (lyricShowing && XposedOwnSP.config.hideTime && XposedOwnSP.config.mMiuiPadOptimize) {
+            miuiPadClockHiddenForLyric = miuiPadClockView != null
+            miuiPadClockView?.visibility = View.GONE
+        }
     }
 
     private fun captureXiaomiNotificationClock(instance: Any?) {
@@ -519,7 +526,7 @@ class Api101SystemUIHook(
     private fun onFocusNotificationEvaluated(controller: Any?, showing: Boolean) {
         focusedNotificationController = controller
         focusedNotificationShowing = showing
-        if (!isMusicPlaying) return
+        if (!XposedOwnSP.config.automateFocusedNotice || !isMusicPlaying) return
         if (showing) {
             hideLyric()
         } else if (pendingLyric.isNotEmpty()) {
@@ -892,7 +899,10 @@ class Api101SystemUIHook(
             notificationIconArea?.visibility = View.GONE
         }
         if (XposedOwnSP.config.hideTime) {
-            miuiPadClockView?.visibility = View.GONE
+            if (XposedOwnSP.config.mMiuiPadOptimize) {
+                miuiPadClockHiddenForLyric = miuiPadClockView != null
+                miuiPadClockView?.visibility = View.GONE
+            }
             miuiNotificationBigTime?.visibility = View.GONE
         }
         if (XposedOwnSP.config.mMiuiHideNetworkSpeed) miuiNetworkSpeedView?.visibility = View.GONE
@@ -940,7 +950,10 @@ class Api101SystemUIHook(
         }
         titleDialog?.hideTitle()
         notificationIconArea?.visibility = View.VISIBLE
-        miuiPadClockView?.visibility = View.VISIBLE
+        if (miuiPadClockHiddenForLyric) {
+            miuiPadClockHiddenForLyric = false
+            miuiPadClockView?.visibility = View.VISIBLE
+        }
         miuiNotificationBigTime?.visibility = View.VISIBLE
         miuiNetworkSpeedView?.visibility = View.VISIBLE
         miuiCarrierLabel?.visibility = View.VISIBLE
@@ -1051,7 +1064,8 @@ class Api101SystemUIHook(
             requestedVisibility == View.VISIBLE &&
             ((XposedOwnSP.config.hideNotificationIcon && notificationIconArea === view) ||
                 (XposedOwnSP.config.hideTime &&
-                    (miuiPadClockView === view || miuiNotificationBigTime === view)) ||
+                    (miuiNotificationBigTime === view ||
+                        (XposedOwnSP.config.mMiuiPadOptimize && miuiPadClockView === view))) ||
                 (XposedOwnSP.config.mMiuiHideNetworkSpeed && miuiNetworkSpeedView === view) ||
                 (XposedOwnSP.config.hideCarrier && miuiCarrierLabel === view))
     }
