@@ -30,6 +30,7 @@ import io.github.libxposed.service.XposedService
 import io.github.libxposed.service.XposedServiceHelper
 import statusbar.lyric.config.ActivityOwnSP
 import statusbar.lyric.config.Config
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -51,18 +52,34 @@ object ModuleRuntimeBridge {
     @Volatile
     private var activationCallback: ((Boolean) -> Unit)? = null
 
+    private val preferenceTypes = ConcurrentHashMap<String, PreferenceValueType>()
+
     private val localPreferencesListener = SharedPreferences.OnSharedPreferenceChangeListener { local, key ->
         val remote = remotePreferences ?: return@OnSharedPreferenceChangeListener
         runCatching {
-            val editor = remote.edit()
             if (key == null) {
-                editor.clear()
-            } else if (!local.contains(key)) {
-                editor.remove(key)
-            } else {
-                putValue(editor, key, local.all[key])
+                synchronizeRemoteValues(local, remote)
+                return@runCatching
             }
-            editor.apply()
+
+            if (!local.contains(key)) {
+                preferenceTypes.remove(key)
+                if (remote.contains(key)) {
+                    remote.edit().remove(key).apply()
+                }
+                return@runCatching
+            }
+
+            val type = preferenceTypes[key] ?: detectPreferenceType(local, key).also {
+                preferenceTypes[key] = it
+            }
+            val localValue = readValue(local, key, type)
+            val remoteAlreadyMatches = remote.contains(key) && runCatching {
+                preferenceValuesEqual(localValue, readValue(remote, key, type))
+            }.getOrDefault(false)
+            if (!remoteAlreadyMatches) {
+                remote.edit().also { editor -> putValue(editor, key, localValue) }.apply()
+            }
         }.onFailure { throwable ->
             Log.w(TAG, "API101 Remote Preferences mirror failed", throwable)
         }
@@ -82,7 +99,7 @@ object ModuleRuntimeBridge {
                     val remote = service.getRemotePreferences(Config.CONFIG_NAME)
                     remotePreferences = remote
                     activeService = service
-                    replaceRemoteValues(ActivityOwnSP.ownSP, remote)
+                    synchronizeRemoteValues(ActivityOwnSP.ownSP, remote)
                     notifyActivation(true)
                     Log.i(TAG, "API101 Xposed service connected; Remote Preferences are writable")
                 }.onFailure { throwable ->
@@ -107,17 +124,70 @@ object ModuleRuntimeBridge {
     }
 
     /**
-     * The module application owns configuration. Replacing the remote snapshot on
-     * every service bind prevents an older Remote Preferences file from pinning a
-     * stale anchor or appearance after the user changed it in the application.
+     * The module application owns configuration. A delta sync keeps Remote
+     * Preferences authoritative without clearing and rewriting unchanged keys.
      */
-    private fun replaceRemoteValues(local: SharedPreferences, remote: SharedPreferences) {
+    private fun synchronizeRemoteValues(local: SharedPreferences, remote: SharedPreferences) {
+        val localSnapshot = local.all
+        val remoteSnapshot = remote.all
         val editor = remote.edit()
-        editor.clear()
-        local.all.forEach { (key, value) ->
-            putValue(editor, key, value)
+        var changed = false
+
+        preferenceTypes.clear()
+        localSnapshot.forEach { (key, value) ->
+            preferenceTypeOf(value)?.let { preferenceTypes[key] = it }
         }
-        editor.apply()
+
+        (remoteSnapshot.keys - localSnapshot.keys).forEach { key ->
+            editor.remove(key)
+            changed = true
+        }
+
+        localSnapshot.forEach { (key, localValue) ->
+            if (!preferenceValuesEqual(localValue, remoteSnapshot[key])) {
+                putValue(editor, key, localValue)
+                changed = true
+            }
+        }
+
+        if (changed) editor.apply()
+    }
+
+    private fun detectPreferenceType(preferences: SharedPreferences, key: String): PreferenceValueType {
+        PreferenceValueType.values().forEach { type ->
+            if (runCatching { readValue(preferences, key, type) }.isSuccess) {
+                return type
+            }
+        }
+        throw IllegalStateException("Unsupported preference type for $key")
+    }
+
+    private fun readValue(
+        preferences: SharedPreferences,
+        key: String,
+        type: PreferenceValueType
+    ): Any? = when (type) {
+        PreferenceValueType.BOOLEAN -> preferences.getBoolean(key, false)
+        PreferenceValueType.FLOAT -> preferences.getFloat(key, 0f)
+        PreferenceValueType.INT -> preferences.getInt(key, 0)
+        PreferenceValueType.LONG -> preferences.getLong(key, 0L)
+        PreferenceValueType.STRING -> preferences.getString(key, null)
+        PreferenceValueType.STRING_SET -> preferences.getStringSet(key, emptySet())?.toSet()
+    }
+
+    private fun preferenceTypeOf(value: Any?): PreferenceValueType? = when (value) {
+        is Boolean -> PreferenceValueType.BOOLEAN
+        is Float -> PreferenceValueType.FLOAT
+        is Int -> PreferenceValueType.INT
+        is Long -> PreferenceValueType.LONG
+        is String -> PreferenceValueType.STRING
+        is Set<*> -> PreferenceValueType.STRING_SET
+        else -> null
+    }
+
+    private fun preferenceValuesEqual(first: Any?, second: Any?): Boolean {
+        if (first is Set<*> && second is Set<*>) return first.toSet() == second.toSet()
+        return first == second
     }
 
     private fun putValue(editor: SharedPreferences.Editor, key: String, value: Any?) {
@@ -131,6 +201,15 @@ object ModuleRuntimeBridge {
             null -> editor.remove(key)
             else -> Log.w(TAG, "Ignoring unsupported preference type for $key: ${value.javaClass.name}")
         }
+    }
+
+    private enum class PreferenceValueType {
+        BOOLEAN,
+        FLOAT,
+        INT,
+        LONG,
+        STRING,
+        STRING_SET
     }
 
     private fun notifyActivation(active: Boolean) {
