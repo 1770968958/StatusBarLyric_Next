@@ -28,8 +28,6 @@ import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.icu.text.SimpleDateFormat
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
 import android.util.TypedValue
 import android.view.View
 import android.widget.Toast
@@ -41,14 +39,11 @@ import statusbar.lyric.tools.LogTools.log
 import java.io.DataOutputStream
 import java.util.Locale
 import java.util.Objects
-import java.util.regex.Pattern
 import kotlin.properties.Delegates
 import kotlin.properties.ReadWriteProperty
 
 @SuppressLint("StaticFieldLeak")
 object Tools {
-    private val mainHandler: Handler by lazy { Handler(Looper.getMainLooper()) }
-
     val buildTime: String =
         SimpleDateFormat("yyyy/M/d H:m:s", Locale.CHINA).format(BuildConfig.BUILD_TIME)
 
@@ -88,17 +83,7 @@ object Tools {
     }
 
     @SuppressLint("PrivateApi")
-    fun getSystemProperties(key: String): String {
-        val ret: String = try {
-            Class.forName("android.os.SystemProperties")
-                .getDeclaredMethod("get", String::class.java).invoke(null, key) as String
-        } catch (iAE: IllegalArgumentException) {
-            throw iAE
-        } catch (_: Exception) {
-            ""
-        }
-        return ret
-    }
+    fun getSystemProperties(key: String): String = SystemPropertiesReader.get(key)
 
     fun <T> observableChange(
         initialValue: T, onChange: (oldValue: T, newValue: T) -> Unit
@@ -110,22 +95,20 @@ object Tools {
         }
     }
 
-    private fun String.regexReplace(pattern: String, newString: String): String {
-        val p = Pattern.compile("(?i)$pattern")
-        val m = p.matcher(this)
-        return m.replaceAll(newString)
-    }
-
-    fun goMainThread(delayed: Long = 0, callback: () -> Unit): Boolean {
-        return mainHandler.postDelayed({
-            callback()
-        }, delayed * 1000)
-    }
+    fun goMainThread(delayed: Long = 0, callback: () -> Unit): Boolean =
+        MainThreadScheduler.postDelayedSeconds(delayed, callback)
 
     fun Context.isLandscape() =
         resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    fun String.dispose() = this.regexReplace(" ", "").regexReplace("\n", "")
+    fun String.dispose(): String {
+        if (' ' !in this && '\n' !in this) return this
+        return buildString(length) {
+            this@dispose.forEach { char ->
+                if (char != ' ' && char != '\n') append(char)
+            }
+        }
+    }
 
     fun getSP(context: Context, key: String): SharedPreferences {
         @Suppress("DEPRECATION", "WorldReadableFiles")
