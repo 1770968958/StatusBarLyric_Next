@@ -178,7 +178,6 @@ class SystemUILyric : BaseHook() {
 
     private lateinit var clockView: TextView
     private lateinit var targetView: ViewGroup
-    private var targetViewOriginalGravity: Int? = null
 
 
     private val lyricView: LyricSwitchView by lazy {
@@ -256,9 +255,9 @@ class SystemUILyric : BaseHook() {
                         val view = (hookParam.thisObject as View)
                         if (view.isTargetView()) {
                             clockView = view as TextView
-                            val clockParent = clockView.parent as LinearLayout
-                            targetView = clockParent
-                            targetViewOriginalGravity = clockParent.gravity
+                            targetView = (clockView.parent as LinearLayout).apply {
+                                gravity = Gravity.CENTER
+                            }
                             canLoad = false
                             lyricInit()
                         }
@@ -523,11 +522,6 @@ class SystemUILyric : BaseHook() {
                 )
                 lyricLayout.setBackgroundBlur(blurRadio, cornerRadius, blendModes)
             }
-            if (isMusicPlaying && lastLyric.isNotEmpty()) {
-                updateLyricState(delay = lastLyricDelay)
-            } else {
-                hideLyric(force = true)
-            }
         }
 
         updateConfig(1)
@@ -565,8 +559,7 @@ class SystemUILyric : BaseHook() {
     }
 
     private fun canShowLyric(): Boolean {
-        return isMusicPlaying && lastLyric.isNotEmpty() &&
-            !FocusNotifyController.isOS1FocusNotifyShowing && !FocusNotifyController.isInteraction
+        return isMusicPlaying && !FocusNotifyController.isOS1FocusNotifyShowing && !FocusNotifyController.isInteraction
     }
 
     private fun isInFullScreenMode(): Boolean {
@@ -648,7 +641,11 @@ class SystemUILyric : BaseHook() {
         if (handler.hasMessages(timeoutRestore)) {
             handler.removeMessages(timeoutRestore)
         }
-        handler.sendEmptyMessageDelayed(timeoutRestore, 10000L)
+        if (!config.timeoutRestore) return
+        handler.sendEmptyMessageDelayed(
+            timeoutRestore,
+            config.timeoutRestoreSeconds * 1000L
+        )
     }
 
     private fun resolveIconBase64(data: SuperLyricData, publisher: String): String {
@@ -769,7 +766,6 @@ class SystemUILyric : BaseHook() {
         goMainThread {
             isHiding = false
             lastColor = clockView.currentTextColor
-            (targetView as? LinearLayout)?.gravity = Gravity.CENTER
             lyricLayout.cancelAnimation()
             lyricLayout.showView()
             if (config.hideTime) {
@@ -867,18 +863,16 @@ class SystemUILyric : BaseHook() {
     }
 
     // 适用于不考虑状态的隐藏
-    private fun hideLyric(force: Boolean = false) {
+    private fun hideLyric() {
         if (!isReady) return
-        if (isHiding && !force) return
+        if (isHiding) return
         isHiding = true
 
         "Hiding LyricView".log()
         goMainThread {
-            (targetView as? LinearLayout)?.gravity = targetViewOriginalGravity ?: Gravity.CENTER_VERTICAL
             lyricLayout.hideView(false)
             lyricView.stopAllScroll()
             lyricView.setText("")
-            lyricView.width = 0
             clockView.showView()
             if (config.titleSwitch) titleDialog.hideTitle()
             notificationIconArea?.showView()
@@ -992,6 +986,11 @@ class SystemUILyric : BaseHook() {
                         setBackgroundColor(config.iconBgColor.toColorInt())
                     }
                 }
+            }
+            if (isMusicPlaying && lastLyric.isNotEmpty()) {
+                refreshTimeoutRestore()
+            } else if (handler.hasMessages(timeoutRestore)) {
+                handler.removeMessages(timeoutRestore)
             }
         }
     }

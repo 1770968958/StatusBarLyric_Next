@@ -30,19 +30,23 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import statusbar.lyric.config.ActivityOwnSP
 import statusbar.lyric.config.ActivityOwnSP.config
 import statusbar.lyric.config.ActivityOwnSP.updateConfigVer
 import statusbar.lyric.data.Data
+import statusbar.lyric.runtime.ModuleRuntimeBridge
 import statusbar.lyric.tools.ActivityTools
 import statusbar.lyric.tools.ActivityTools.dataList
-import statusbar.lyric.tools.ActivityTools.isHook
 import statusbar.lyric.tools.BackupTools
 import statusbar.lyric.tools.ConfigTools
 import statusbar.lyric.tools.LogTools
@@ -57,9 +61,43 @@ class MainActivity : ComponentActivity() {
     companion object {
         lateinit var appContext: Context private set
 
-        var isLoad: Boolean = false
+        var isLoad by mutableStateOf(false)
 
         var testReceiver = false
+        private var pendingAnchorRequestId = NO_ANCHOR_REQUEST
+        private var lastAnchorResponseId = NO_ANCHOR_REQUEST
+
+        fun beginAnchorRequest(): Long {
+            val requestId = SystemClock.elapsedRealtimeNanos()
+            pendingAnchorRequestId = requestId
+            lastAnchorResponseId = NO_ANCHOR_REQUEST
+            testReceiver = false
+            dataList = arrayListOf()
+            return requestId
+        }
+
+        fun isAnchorRequestSuccessful(requestId: Long): Boolean {
+            return lastAnchorResponseId == requestId && testReceiver
+        }
+
+        fun isAnchorResponseReceived(requestId: Long): Boolean {
+            return lastAnchorResponseId == requestId
+        }
+
+        fun abandonAnchorRequest(requestId: Long) {
+            if (pendingAnchorRequestId == requestId) {
+                pendingAnchorRequestId = NO_ANCHOR_REQUEST
+            }
+        }
+
+        private fun acceptAnchorResponse(requestId: Long): Boolean {
+            if (requestId != pendingAnchorRequestId) return false
+            pendingAnchorRequestId = NO_ANCHOR_REQUEST
+            lastAnchorResponseId = requestId
+            return true
+        }
+
+        private const val NO_ANCHOR_REQUEST = Long.MIN_VALUE
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,7 +126,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        isLoad = isHook()
+        ModuleRuntimeBridge.initialize { isLoad = it }
         init()
 
         setContent {
@@ -125,10 +163,15 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context, intent: Intent) {
             when (intent.getStringExtra("Type")) {
                 "ReceiveClass" -> {
+                    val requestId = intent.getLongExtra("RequestId", NO_ANCHOR_REQUEST)
+                    if (!acceptAnchorResponse(requestId)) {
+                        "Ignored stale anchor response: $requestId".log()
+                        return
+                    }
                     dataList = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getSerializableExtra("DataList", ArrayList<Data>()::class.java)
+                        intent.getParcelableArrayListExtra("DataList", Data::class.java)
                     } else {
-                        intent.getSerializableExtra("DataList") as ArrayList<Data>
+                        intent.getParcelableArrayListExtra("DataList")
                     } ?: arrayListOf()
                     if (dataList.isEmpty()) {
                         "DataList is empty".log()

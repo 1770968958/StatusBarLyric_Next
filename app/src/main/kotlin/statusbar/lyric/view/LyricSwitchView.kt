@@ -59,7 +59,7 @@ open class LyricSwitchView(context: Context) : TextSwitcher(context) {
         applyToAllViews { it.setTextColor(color) }
     }
 
-    fun setLinearGradient(shader: Shader) {
+    fun setLinearGradient(shader: Shader?) {
         applyToAllViews { it.setLinearGradient(shader) }
     }
 

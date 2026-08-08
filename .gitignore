@@ -1,6 +1,7 @@
 .gradle
 .gradle-user-home/
 .gradle-tmp/
+.android-sdk/
 app/release
 app/build
 app/debug
@@ -10,6 +11,7 @@ local.properties
 build
 hs_err_*.log
 /.kotlin
+plans/
 
 # Local signing keys and sensitive config
 *.jks

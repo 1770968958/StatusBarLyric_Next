@@ -24,35 +24,38 @@ package statusbar.lyric.tools
 
 import android.annotation.SuppressLint
 import android.content.SharedPreferences
-import de.robv.android.xposed.XSharedPreferences
-import statusbar.lyric.tools.Tools.isNull
+import statusbar.lyric.config.ConfigStore
 
-class ConfigTools {
-    private var xSP: XSharedPreferences? = null
+class ConfigTools : ConfigStore {
     private var mSP: SharedPreferences? = null
     private var mSPEditor: SharedPreferences.Editor? = null
 
-    constructor(xSharedPreferences: XSharedPreferences?) {
-        xSP = xSharedPreferences
-        mSP = xSharedPreferences
+    override val isReadOnly: Boolean = false
+
+    @SuppressLint("CommitPrefEdits")
+    constructor(sharedPreferences: SharedPreferences?) {
+        attach(sharedPreferences)
     }
 
     @SuppressLint("CommitPrefEdits")
-    constructor(sharedPreferences: SharedPreferences) {
+    fun attach(sharedPreferences: SharedPreferences?) {
         mSP = sharedPreferences
-        mSPEditor = sharedPreferences.edit()
+        mSPEditor = sharedPreferences?.edit()
     }
 
-    fun reload() {
-        xSP.isNull {
-            xSP = Tools.getPref("Lyric_Config")
-            mSP = xSP
-            return
+    override fun reload() {
+        val reload = mSP?.javaClass?.methods?.firstOrNull {
+            it.name == "reload" && it.parameterTypes.isEmpty()
+        } ?: return
+        try {
+            reload.isAccessible = true
+            reload.invoke(mSP)
+        } catch (_: Throwable) {
+            // SharedPreferences implementations without reload are already current.
         }
-        xSP?.reload()
     }
 
-    fun put(key: String?, any: Any) {
+    override fun put(key: String?, any: Any) {
         when (any) {
             is Int -> mSPEditor?.putInt(key, any)
             is String -> mSPEditor?.putString(key, any)
@@ -63,8 +66,8 @@ class ConfigTools {
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun <T> opt(key: String, defValue: T): T {
-        mSP.isNull {
+    override fun <T> opt(key: String, defValue: T): T {
+        if (mSP == null) {
             return defValue
         }
         return when (defValue) {
@@ -77,7 +80,15 @@ class ConfigTools {
         }
     }
 
-    fun clearConfig() {
+    override fun contains(key: String): Boolean {
+        return mSP?.contains(key) == true
+    }
+
+    override fun snapshot(): Map<String, Any?> {
+        return mSP?.all?.mapValues { it.value } ?: emptyMap()
+    }
+
+    override fun clearConfig() {
         mSPEditor?.clear()?.apply()
     }
 }

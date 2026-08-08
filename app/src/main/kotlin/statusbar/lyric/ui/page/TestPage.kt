@@ -54,7 +54,6 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import statusbar.lyric.MainActivity
-import statusbar.lyric.MainActivity.Companion.testReceiver
 import statusbar.lyric.R
 import statusbar.lyric.config.ActivityOwnSP.config
 import statusbar.lyric.tools.ActivityTestTools.getClass
@@ -179,34 +178,24 @@ fun TestPage(
                                     ),
                                     rightText = stringResource(R.string.tips1),
                                     onClick = {
-                                        MainActivity.appContext.getClass()
-                                        when (testReceiver) {
-                                            true -> if (currentRoute != "ChoosePage") {
-                                                navController.navigate("ChoosePage") {
-                                                    popUpTo("TestPage") {
-                                                        inclusive = false
-                                                    }
-                                                    launchSingleTop = true
-                                                    restoreState = true
-                                                }
-                                            }
-
-                                            else -> {
-                                                runOnMainDelayed(500L) {
-                                                    if (testReceiver) {
-                                                        if (currentRoute != "ChoosePage") {
-                                                            navController.navigate("ChoosePage") {
-                                                                popUpTo("TestPage") {
-                                                                    inclusive = false
-                                                                }
-                                                                launchSingleTop = true
-                                                                restoreState = true
-                                                            }
+                                        val requestId = MainActivity.beginAnchorRequest()
+                                        MainActivity.appContext.getClass(requestId)
+                                        runOnMainDelayed(2_000L) {
+                                            if (MainActivity.isAnchorRequestSuccessful(requestId)) {
+                                                if (currentRoute != "ChoosePage") {
+                                                    navController.navigate("ChoosePage") {
+                                                        popUpTo("TestPage") {
+                                                            inclusive = false
                                                         }
-                                                    } else {
-                                                        showToastOnLooper(MainActivity.appContext.getString(R.string.broadcast_receive_timeout))
+                                                        launchSingleTop = true
+                                                        restoreState = true
                                                     }
                                                 }
+                                            } else if (!MainActivity.isAnchorResponseReceived(requestId)) {
+                                                MainActivity.abandonAnchorRequest(requestId)
+                                                showToastOnLooper(
+                                                    MainActivity.appContext.getString(R.string.broadcast_receive_timeout)
+                                                )
                                             }
                                         }
                                     },

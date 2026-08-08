@@ -22,9 +22,21 @@
 
 package statusbar.lyric.config
 
-import statusbar.lyric.config.Config.Companion.CONFIG_NAME
-import statusbar.lyric.tools.Tools
+/**
+ * Storage boundary shared by the activity and runtime-specific hook sources.
+ */
+interface ConfigStore {
+    val isReadOnly: Boolean
 
-object XposedOwnSP {
-    val config: Config by lazy { Config(Tools.getPref(CONFIG_NAME)) }
+    fun reload()
+
+    fun <T> opt(key: String, defValue: T): T
+
+    fun contains(key: String): Boolean
+
+    fun snapshot(): Map<String, Any?>
+
+    fun put(key: String?, any: Any)
+
+    fun clearConfig()
 }

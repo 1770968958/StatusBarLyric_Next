@@ -46,6 +46,7 @@ object ActivityTools {
     fun changeConfig(type: String = "normal", path: String = "") {
         handler.postDelayed({
             MainActivity.appContext.sendBroadcast(Intent("updateConfig").apply {
+                setPackage("com.android.systemui")
                 putExtra("type", type)
                 putExtra("path", path)
             })

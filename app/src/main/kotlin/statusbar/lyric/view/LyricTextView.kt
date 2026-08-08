@@ -68,7 +68,7 @@ class LyricTextView(context: Context) : TextView(context), Choreographer.FrameCa
         postInvalidate()
     }
 
-    fun setLinearGradient(shader: Shader) {
+    fun setLinearGradient(shader: Shader?) {
         paint.shader = shader
         postInvalidate()
     }

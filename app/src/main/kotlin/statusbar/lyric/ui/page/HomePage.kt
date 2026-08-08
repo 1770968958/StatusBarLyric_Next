@@ -41,7 +41,6 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -88,7 +87,9 @@ fun HomePage(
     currentRoute: String
 ) {
     val scrollBehavior = MiuixScrollBehavior(rememberTopAppBarState())
-    val masterSwitchState = remember { mutableStateOf(if (isLoad) config.masterSwitch else false) }
+    val masterSwitchState = remember(isLoad) {
+        mutableStateOf(if (isLoad) config.masterSwitch else false)
+    }
 
     val hazeState = remember { HazeState() }
     val hazeStyle = HazeStyle(
@@ -100,13 +101,6 @@ fun HomePage(
             )
         )
     )
-
-    LaunchedEffect(Unit) {
-        if (!isLoad) {
-            masterSwitchState.value = false
-            config.masterSwitch = false
-        }
-    }
 
     Scaffold(
         topBar = {

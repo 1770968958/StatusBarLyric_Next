@@ -23,23 +23,29 @@
 package statusbar.lyric.config
 
 import android.content.SharedPreferences
-import de.robv.android.xposed.XSharedPreferences
 import statusbar.lyric.BuildConfig
 import statusbar.lyric.tools.ConfigTools
 
 class Config {
     companion object {
         const val CONFIG_NAME = "COMPOSE_CONFIG"
+        const val DEFAULT_TIMEOUT_RESTORE_SECONDS = 10
+        const val MIN_TIMEOUT_RESTORE_SECONDS = 10
+        const val MAX_TIMEOUT_RESTORE_SECONDS = 60
     }
 
-    var config: ConfigTools
+    var config: ConfigStore
 
-    constructor(xSharedPreferences: XSharedPreferences?) {
-        config = ConfigTools(xSharedPreferences)
-    }
-
-    constructor(sharedPreferences: SharedPreferences) {
+    constructor(sharedPreferences: SharedPreferences?) {
         config = ConfigTools(sharedPreferences)
+    }
+
+    fun attach(sharedPreferences: SharedPreferences?) {
+        config = ConfigTools(sharedPreferences)
+    }
+
+    fun attachStore(store: ConfigStore) {
+        config = store
     }
 
     fun update() {
@@ -267,6 +273,17 @@ class Config {
         }
         set(value) {
             config.put("timeoutRestore", value)
+        }
+    var timeoutRestoreSeconds: Int
+        get() {
+            return config.opt("timeoutRestoreSeconds", DEFAULT_TIMEOUT_RESTORE_SECONDS)
+                .coerceIn(MIN_TIMEOUT_RESTORE_SECONDS, MAX_TIMEOUT_RESTORE_SECONDS)
+        }
+        set(value) {
+            config.put(
+                "timeoutRestoreSeconds",
+                value.coerceIn(MIN_TIMEOUT_RESTORE_SECONDS, MAX_TIMEOUT_RESTORE_SECONDS)
+            )
         }
     var longClickStatusBarStop: Boolean
         get() {
