@@ -39,9 +39,15 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 object ModuleRuntimeBridge {
     private const val TAG = "StatusBarLyric/API101"
+    private const val PREFERENCE_MIRROR_DEBOUNCE_MILLIS = 75L
 
     private val initialized = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val pendingPreferenceLock = Any()
+    private val pendingPreferenceKeys = LinkedHashSet<String>()
+
+    @Volatile
+    private var fullPreferenceSyncPending = false
 
     @Volatile
     private var activeService: XposedService? = null
@@ -54,35 +60,11 @@ object ModuleRuntimeBridge {
 
     private val preferenceTypes = ConcurrentHashMap<String, PreferenceValueType>()
 
-    private val localPreferencesListener = SharedPreferences.OnSharedPreferenceChangeListener { local, key ->
-        val remote = remotePreferences ?: return@OnSharedPreferenceChangeListener
-        runCatching {
-            if (key == null) {
-                synchronizeRemoteValues(local, remote)
-                return@runCatching
-            }
+    private val preferenceSyncRunnable = Runnable { flushPendingPreferenceChanges() }
 
-            if (!local.contains(key)) {
-                preferenceTypes.remove(key)
-                if (remote.contains(key)) {
-                    remote.edit().remove(key).apply()
-                }
-                return@runCatching
-            }
-
-            val type = preferenceTypes[key] ?: detectPreferenceType(local, key).also {
-                preferenceTypes[key] = it
-            }
-            val localValue = readValue(local, key, type)
-            val remoteAlreadyMatches = remote.contains(key) && runCatching {
-                preferenceValuesEqual(localValue, readValue(remote, key, type))
-            }.getOrDefault(false)
-            if (!remoteAlreadyMatches) {
-                remote.edit().also { editor -> putValue(editor, key, localValue) }.apply()
-            }
-        }.onFailure { throwable ->
-            Log.w(TAG, "API101 Remote Preferences mirror failed", throwable)
-        }
+    private val localPreferencesListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (remotePreferences == null) return@OnSharedPreferenceChangeListener
+        scheduleRemotePreferenceSync(key)
     }
 
     fun initialize(onActivationChanged: (Boolean) -> Unit) {
@@ -99,6 +81,7 @@ object ModuleRuntimeBridge {
                     val remote = service.getRemotePreferences(Config.CONFIG_NAME)
                     remotePreferences = remote
                     activeService = service
+                    cancelPendingPreferenceSync()
                     synchronizeRemoteValues(ActivityOwnSP.ownSP, remote)
                     notifyActivation(true)
                     Log.i(TAG, "API101 Xposed service connected; Remote Preferences are writable")
@@ -116,11 +99,95 @@ object ModuleRuntimeBridge {
                 if (activeService === service) {
                     activeService = null
                     remotePreferences = null
+                    cancelPendingPreferenceSync()
                     notifyActivation(false)
                     Log.w(TAG, "API101 Xposed service disconnected")
                 }
             }
         })
+    }
+
+    private fun scheduleRemotePreferenceSync(key: String?) {
+        synchronized(pendingPreferenceLock) {
+            if (key == null) {
+                fullPreferenceSyncPending = true
+                pendingPreferenceKeys.clear()
+            } else if (!fullPreferenceSyncPending) {
+                pendingPreferenceKeys += key
+            }
+        }
+        mainHandler.removeCallbacks(preferenceSyncRunnable)
+        mainHandler.postDelayed(preferenceSyncRunnable, PREFERENCE_MIRROR_DEBOUNCE_MILLIS)
+    }
+
+    private fun flushPendingPreferenceChanges() {
+        val remote = remotePreferences ?: run {
+            clearPendingPreferenceState()
+            return
+        }
+        val local = ActivityOwnSP.ownSP
+        val (fullSync, keys) = synchronized(pendingPreferenceLock) {
+            val result = fullPreferenceSyncPending to pendingPreferenceKeys.toList()
+            fullPreferenceSyncPending = false
+            pendingPreferenceKeys.clear()
+            result
+        }
+
+        runCatching {
+            if (fullSync) {
+                synchronizeRemoteValues(local, remote)
+            } else if (keys.isNotEmpty()) {
+                synchronizeChangedKeys(local, remote, keys)
+            }
+        }.onFailure { throwable ->
+            Log.w(TAG, "API101 Remote Preferences mirror failed", throwable)
+        }
+    }
+
+    private fun synchronizeChangedKeys(
+        local: SharedPreferences,
+        remote: SharedPreferences,
+        keys: Collection<String>
+    ) {
+        val editor = remote.edit()
+        var changed = false
+
+        keys.forEach { key ->
+            if (!local.contains(key)) {
+                preferenceTypes.remove(key)
+                if (remote.contains(key)) {
+                    editor.remove(key)
+                    changed = true
+                }
+                return@forEach
+            }
+
+            val type = preferenceTypes[key] ?: detectPreferenceType(local, key).also {
+                preferenceTypes[key] = it
+            }
+            val localValue = readValue(local, key, type)
+            val remoteAlreadyMatches = remote.contains(key) && runCatching {
+                preferenceValuesEqual(localValue, readValue(remote, key, type))
+            }.getOrDefault(false)
+            if (!remoteAlreadyMatches) {
+                putValue(editor, key, localValue)
+                changed = true
+            }
+        }
+
+        if (changed) editor.apply()
+    }
+
+    private fun cancelPendingPreferenceSync() {
+        mainHandler.removeCallbacks(preferenceSyncRunnable)
+        clearPendingPreferenceState()
+    }
+
+    private fun clearPendingPreferenceState() {
+        synchronized(pendingPreferenceLock) {
+            fullPreferenceSyncPending = false
+            pendingPreferenceKeys.clear()
+        }
     }
 
     /**
