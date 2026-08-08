@@ -25,31 +25,30 @@ package statusbar.lyric.config
 import android.content.SharedPreferences
 
 /**
- * Read-only adapter for the Remote Preferences instance supplied by API 101.
+ * API101 提供的 Remote Preferences 只读适配器。
  */
 class Api101RemotePreferencesStore(
     private val preferences: SharedPreferences
-) : ConfigStore {
-    override val isReadOnly: Boolean = true
+) : ConfigReader {
 
     override fun reload() {
-        // Remote Preferences are read directly from the framework-backed instance.
+        // Remote Preferences 由框架实例直接提供最新值，不需要主动 reload。
     }
 
-    @Suppress("UNCHECKED_CAST")
-    override fun <T> opt(key: String, defValue: T): T {
-        return when (defValue) {
-            is String -> preferences.getString(key, defValue) as T
-            is Int -> preferences.getInt(key, defValue) as T
-            is Long -> preferences.getLong(key, defValue) as T
-            is Boolean -> preferences.getBoolean(key, defValue) as T
-            is Double -> preferences.getFloat(key, defValue.toFloat()).toDouble() as T
-            is Float -> preferences.getFloat(key, defValue) as T
-            else -> throw IllegalArgumentException(
-                "Unsupported preference type for key '$key': ${defValue?.let { it::class.java.name } ?: "null"}"
-            )
-        }
-    }
+    override fun getString(key: String, defaultValue: String): String =
+        preferences.getString(key, defaultValue) ?: defaultValue
+
+    override fun getInt(key: String, defaultValue: Int): Int =
+        preferences.getInt(key, defaultValue)
+
+    override fun getLong(key: String, defaultValue: Long): Long =
+        preferences.getLong(key, defaultValue)
+
+    override fun getBoolean(key: String, defaultValue: Boolean): Boolean =
+        preferences.getBoolean(key, defaultValue)
+
+    override fun getFloat(key: String, defaultValue: Float): Float =
+        preferences.getFloat(key, defaultValue)
 
     override fun contains(key: String): Boolean {
         return preferences.contains(key)
@@ -57,17 +56,5 @@ class Api101RemotePreferencesStore(
 
     override fun snapshot(): Map<String, Any?> {
         return preferences.all.mapValues { it.value }
-    }
-
-    override fun put(key: String?, any: Any) {
-        throw UnsupportedOperationException(
-            "API 101 Remote Preferences are read-only until a framework-backed write port is available"
-        )
-    }
-
-    override fun clearConfig() {
-        throw UnsupportedOperationException(
-            "API 101 Remote Preferences are read-only until a framework-backed write port is available"
-        )
     }
 }

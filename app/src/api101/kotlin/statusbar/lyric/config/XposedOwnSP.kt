@@ -42,7 +42,7 @@ object XposedOwnSP {
         get() = remoteStore != null
 
     val isRemotePreferencesReadOnly: Boolean
-        get() = remoteStore?.isReadOnly == true
+        get() = remoteStore != null
 
     fun attachRemotePreferences(preferences: SharedPreferences) {
         remotePreferences?.let { previous ->

@@ -30,8 +30,6 @@ class ConfigTools : ConfigStore {
     private var mSP: SharedPreferences? = null
     private var mSPEditor: SharedPreferences.Editor? = null
 
-    override val isReadOnly: Boolean = false
-
     @SuppressLint("CommitPrefEdits")
     constructor(sharedPreferences: SharedPreferences?) {
         attach(sharedPreferences)
@@ -51,37 +49,36 @@ class ConfigTools : ConfigStore {
             reload.isAccessible = true
             reload.invoke(mSP)
         } catch (_: Throwable) {
-            // SharedPreferences implementations without reload are already current.
+            // 不支持 reload 的 SharedPreferences 实现本身就是实时读取，无需额外处理。
         }
     }
 
-    override fun put(key: String?, any: Any) {
-        when (any) {
-            is Int -> mSPEditor?.putInt(key, any)
-            is String -> mSPEditor?.putString(key, any)
-            is Boolean -> mSPEditor?.putBoolean(key, any)
-            is Float -> mSPEditor?.putFloat(key, any)
+    override fun put(key: String, value: Any) {
+        when (value) {
+            is Int -> mSPEditor?.putInt(key, value)
+            is Long -> mSPEditor?.putLong(key, value)
+            is String -> mSPEditor?.putString(key, value)
+            is Boolean -> mSPEditor?.putBoolean(key, value)
+            is Float -> mSPEditor?.putFloat(key, value)
+            else -> throw IllegalArgumentException("不支持的配置类型: ${value::class.java.name}")
         }
         mSPEditor?.apply()
     }
 
-    @Suppress("UNCHECKED_CAST")
-    override fun <T> opt(key: String, defValue: T): T {
-        if (mSP == null) {
-            return defValue
-        }
-        return when (defValue) {
-            is String -> mSP!!.getString(key, defValue.toString()) as T
-            is Int -> mSP!!.getInt(key, defValue) as T
-            is Long -> mSP!!.getLong(key, defValue) as T
-            is Boolean -> mSP!!.getBoolean(key, defValue) as T
-            is Double -> mSP!!.getFloat(key, defValue.toFloat()).toDouble() as T
-            is Float -> mSP!!.getFloat(key, defValue) as T
-            else -> throw IllegalArgumentException(
-                "Unsupported preference type for key '$key': ${defValue?.let { it::class.java.name } ?: "null"}"
-            )
-        }
-    }
+    override fun getString(key: String, defaultValue: String): String =
+        mSP?.getString(key, defaultValue) ?: defaultValue
+
+    override fun getInt(key: String, defaultValue: Int): Int =
+        mSP?.getInt(key, defaultValue) ?: defaultValue
+
+    override fun getLong(key: String, defaultValue: Long): Long =
+        mSP?.getLong(key, defaultValue) ?: defaultValue
+
+    override fun getBoolean(key: String, defaultValue: Boolean): Boolean =
+        mSP?.getBoolean(key, defaultValue) ?: defaultValue
+
+    override fun getFloat(key: String, defaultValue: Float): Float =
+        mSP?.getFloat(key, defaultValue) ?: defaultValue
 
     override fun contains(key: String): Boolean {
         return mSP?.contains(key) == true
