@@ -39,7 +39,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
-import android.os.Message
 import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.Gravity
@@ -90,6 +89,7 @@ import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.ViewVisibilityOverrideState
 import statusbar.lyric.runtime.icon.IconBitmapDecoder
 import statusbar.lyric.runtime.input.MediaKeyDispatcher
+import statusbar.lyric.runtime.scheduler.ResettableHandlerTask
 import statusbar.lyric.runtime.style.RuntimeAppearanceSnapshot
 import statusbar.lyric.runtime.style.TypefaceFileCache
 import statusbar.lyric.tools.Tools.observableChange
@@ -627,19 +627,24 @@ class SystemUILyric : BaseHook() {
     private var playingApp: String = ""
     private var updateConfig: UpdateConfig = UpdateConfig()
     private var screenLockReceiver: ScreenLockReceiver = ScreenLockReceiver()
-    private val timeoutRestore: Int = 0
-    private val handler: Handler = object : Handler(Looper.getMainLooper()) {
-        override fun handleMessage(msg: Message) {
-            if (msg.what == timeoutRestore && config.timeoutRestore) {
-                lastLyric = ""
-                lastLyricDelay = 0
-                playingApp = ""
-                updateLyricState(showLyric = false)
-                "Timeout restore".log()
-            }
-        }
+    private val handler = Handler(Looper.getMainLooper())
+    private var pendingTitlePublisher = ""
+    private var pendingTitleData: SuperLyricData? = null
+    private val timeoutRestoreTask = ResettableHandlerTask(handler) {
+        if (!config.timeoutRestore) return@ResettableHandlerTask
+        lastLyric = ""
+        lastLyricDelay = 0
+        playingApp = ""
+        updateLyricState(showLyric = false)
+        "Timeout restore".log()
     }
-    private var lastRunnable: Runnable? = null
+    private val titleDisplayTask = ResettableHandlerTask(handler) {
+        val publisher = pendingTitlePublisher
+        val data = pendingTitleData
+        pendingTitlePublisher = ""
+        pendingTitleData = null
+        if (data != null) showTitleIfCurrent(publisher, data)
+    }
     private fun showTitleIfCurrent(publisher: String, data: SuperLyricData) {
         if (!isMusicPlaying) return
         if (playingApp != publisher) return
@@ -648,23 +653,17 @@ class SystemUILyric : BaseHook() {
     }
 
     private fun scheduleTitleOnce(publisher: String, data: SuperLyricData) {
-        lastRunnable?.let { handler.removeCallbacks(it) }
-        lastRunnable = Runnable {
-            showTitleIfCurrent(publisher, data)
-            lastRunnable = null
-        }
-        handler.postDelayed(lastRunnable!!, 800)
+        pendingTitlePublisher = publisher
+        pendingTitleData = data
+        titleDisplayTask.schedule(800L)
     }
 
     private fun refreshTimeoutRestore() {
-        if (handler.hasMessages(timeoutRestore)) {
-            handler.removeMessages(timeoutRestore)
+        if (!config.timeoutRestore) {
+            timeoutRestoreTask.cancel()
+            return
         }
-        if (!config.timeoutRestore) return
-        handler.sendEmptyMessageDelayed(
-            timeoutRestore,
-            config.timeoutRestoreSeconds * 1000L
-        )
+        timeoutRestoreTask.schedule(config.timeoutRestoreSeconds * 1000L)
     }
 
     private fun resolveIconBase64(data: SuperLyricData, publisher: String): String =
@@ -689,9 +688,10 @@ class SystemUILyric : BaseHook() {
                     lastLyricDelay = 0
                     playingApp = ""
                     isMusicPlaying = false
-                    lastRunnable?.let { handler.removeCallbacks(it) }
-                    lastRunnable = null
-                    if (handler.hasMessages(timeoutRestore)) handler.removeMessages(timeoutRestore)
+                    pendingTitlePublisher = ""
+                    pendingTitleData = null
+                    titleDisplayTask.cancel()
+                    timeoutRestoreTask.cancel()
                     updateLyricState(showLyric = false)
                 }
 
@@ -982,8 +982,8 @@ class SystemUILyric : BaseHook() {
             }
             if (isMusicPlaying && lastLyric.isNotEmpty()) {
                 refreshTimeoutRestore()
-            } else if (handler.hasMessages(timeoutRestore)) {
-                handler.removeMessages(timeoutRestore)
+            } else {
+                timeoutRestoreTask.cancel()
             }
         }
     }
