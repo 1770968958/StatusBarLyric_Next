@@ -769,20 +769,18 @@ class SystemUILyric : BaseHook() {
             )
         }
 
-        if (config.hideLyricWhenLockScreen) {
-            val screenLockFilter = IntentFilter().apply {
-                addAction(Intent.ACTION_SCREEN_OFF)
-                addAction(Intent.ACTION_USER_PRESENT)
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                context.registerReceiver(
-                    screenLockReceiver,
-                    screenLockFilter,
-                    Context.RECEIVER_EXPORTED
-                )
-            } else {
-                context.registerReceiver(screenLockReceiver, screenLockFilter)
-            }
+        val screenLockFilter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.registerReceiver(
+                screenLockReceiver,
+                screenLockFilter,
+                Context.RECEIVER_EXPORTED
+            )
+        } else {
+            context.registerReceiver(screenLockReceiver, screenLockFilter)
         }
 
         "Register SuperLyric".log()
@@ -1041,12 +1039,11 @@ class SystemUILyric : BaseHook() {
         override fun onReceive(context: Context, intent: Intent) {
             isScreenLocked = intent.action == Intent.ACTION_SCREEN_OFF
             LogTools.log { "isScreenLocked: $isScreenLocked" }
+            if (!config.hideLyricWhenLockScreen) return
             if (isScreenLocked) {
                 updateLyricState(showLyric = false)
-            } else {
-                if (isMusicPlaying && lastLyric.isNotEmpty()) {
-                    updateLyricState()
-                }
+            } else if (isMusicPlaying && lastLyric.isNotEmpty()) {
+                updateLyricState()
             }
         }
     }
