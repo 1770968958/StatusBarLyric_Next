@@ -89,7 +89,7 @@ import statusbar.lyric.runtime.StatusBarGestureDetector
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.ViewVisibilityOverrideState
-import statusbar.lyric.runtime.icon.IconBitmapDecoder
+import statusbar.lyric.runtime.icon.SharedLyricIconBitmapCache
 import statusbar.lyric.runtime.input.MediaKeyDispatcher
 import statusbar.lyric.runtime.scheduler.ResettableHandlerTask
 import statusbar.lyric.runtime.style.RuntimeAppearanceSnapshot
@@ -134,10 +134,9 @@ class SystemUILyric : BaseHook() {
     }
     private var lastBase64Icon: String by observableChange("") { _, newValue ->
         iconDecodeHandler.post {
-            val bitmap = IconBitmapDecoder.decode(newValue)
+            val bitmap = SharedLyricIconBitmapCache.instance.getOrDecode(newValue)
             goMainThread {
                 if (lastBase64Icon != newValue) {
-                    bitmap?.recycle()
                     return@goMainThread
                 }
                 bitmap.isNotNull {

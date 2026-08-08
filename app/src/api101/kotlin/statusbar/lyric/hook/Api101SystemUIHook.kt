@@ -63,7 +63,7 @@ import statusbar.lyric.runtime.StatusBarGestureDetector
 import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.ViewVisibilityOverrideState
 import statusbar.lyric.runtime.TargetViewSpec
-import statusbar.lyric.runtime.icon.IconBitmapDecoder
+import statusbar.lyric.runtime.icon.SharedLyricIconBitmapCache
 import statusbar.lyric.runtime.input.MediaKeyDispatcher
 import statusbar.lyric.runtime.scheduler.ResettableHandlerTask
 import statusbar.lyric.runtime.style.RuntimeAppearanceSnapshot
@@ -1098,20 +1098,18 @@ class Api101SystemUIHook(
         if (icon == null || mountedTarget == null) return
 
         iconDecodeExecutor.execute {
-            val bitmap = IconBitmapDecoder.decode(base64Icon)
+            val bitmap = SharedLyricIconBitmapCache.instance.getOrDecode(base64Icon)
             mainHandler.post {
                 if (
                     generation != iconDecodeGeneration.get() ||
                     lastBase64Icon != base64Icon ||
                     !runtimeState.isPlaying
                 ) {
-                    bitmap?.recycle()
                     return@post
                 }
 
                 val currentIcon = iconView
                 if (currentIcon == null || mountedTarget == null) {
-                    bitmap?.recycle()
                     return@post
                 }
                 if (bitmap == null) {
