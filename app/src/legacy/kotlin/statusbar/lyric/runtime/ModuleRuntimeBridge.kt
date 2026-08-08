@@ -25,7 +25,10 @@ package statusbar.lyric.runtime
 import statusbar.lyric.tools.ActivityTools
 
 object ModuleRuntimeBridge {
-    fun initialize(onActivationChanged: (Boolean) -> Unit) {
+    fun initialize() = Unit
+
+    fun observeActivation(onActivationChanged: (Boolean) -> Unit): () -> Unit {
         onActivationChanged(ActivityTools.isHook())
+        return {}
     }
 }

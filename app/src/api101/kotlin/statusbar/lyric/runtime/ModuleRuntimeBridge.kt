@@ -67,12 +67,8 @@ object ModuleRuntimeBridge {
         scheduleRemotePreferenceSync(key)
     }
 
-    fun initialize(onActivationChanged: (Boolean) -> Unit) {
-        activationCallback = onActivationChanged
-        if (!initialized.compareAndSet(false, true)) {
-            notifyActivation(activeService != null)
-            return
-        }
+    fun initialize() {
+        if (!initialized.compareAndSet(false, true)) return
 
         ActivityOwnSP.ownSP.registerOnSharedPreferenceChangeListener(localPreferencesListener)
         XposedServiceHelper.registerListener(object : XposedServiceHelper.OnServiceListener {
@@ -105,6 +101,16 @@ object ModuleRuntimeBridge {
                 }
             }
         })
+    }
+
+    fun observeActivation(onActivationChanged: (Boolean) -> Unit): () -> Unit {
+        activationCallback = onActivationChanged
+        notifyActivation(activeService != null)
+        return {
+            if (activationCallback === onActivationChanged) {
+                activationCallback = null
+            }
+        }
     }
 
     private fun scheduleRemotePreferenceSync(key: String?) {
@@ -280,6 +286,11 @@ object ModuleRuntimeBridge {
     }
 
     private fun notifyActivation(active: Boolean) {
-        mainHandler.post { activationCallback?.invoke(active) }
+        val callback = activationCallback ?: return
+        mainHandler.post {
+            if (activationCallback === callback) {
+                callback(active)
+            }
+        }
     }
 }

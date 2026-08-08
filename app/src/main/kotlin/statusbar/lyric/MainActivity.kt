@@ -57,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private val appTestReceiver by lazy { AppTestReceiver() }
     lateinit var createDocumentLauncher: ActivityResultLauncher<Intent>
     lateinit var openDocumentLauncher: ActivityResultLauncher<Intent>
+    private var stopObservingActivation: (() -> Unit)? = null
 
     companion object {
         lateinit var appContext: Context private set
@@ -126,12 +127,23 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        ModuleRuntimeBridge.initialize { isLoad = it }
+        ModuleRuntimeBridge.initialize()
         init()
 
         setContent {
             App()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        stopObservingActivation = ModuleRuntimeBridge.observeActivation { isLoad = it }
+    }
+
+    override fun onStop() {
+        stopObservingActivation?.invoke()
+        stopObservingActivation = null
+        super.onStop()
     }
 
     override fun onDestroy() {
