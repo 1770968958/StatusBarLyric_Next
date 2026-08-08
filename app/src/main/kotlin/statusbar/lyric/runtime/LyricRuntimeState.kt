@@ -24,6 +24,9 @@ class LyricRuntimeState {
     var eventIdentity: LyricEventIdentity? = null
         private set
 
+    var iconSource: String = ""
+        private set
+
     fun isSameEvent(identity: LyricEventIdentity): Boolean =
         isPlaying && eventIdentity == identity
 
@@ -34,7 +37,8 @@ class LyricRuntimeState {
         lyric: String,
         delayMillis: Int,
         track: TrackIdentity,
-        eventIdentity: LyricEventIdentity
+        eventIdentity: LyricEventIdentity,
+        iconSource: String = ""
     ) {
         isPlaying = true
         this.publisher = publisher
@@ -42,6 +46,7 @@ class LyricRuntimeState {
         this.delayMillis = delayMillis
         this.track = track
         this.eventIdentity = eventIdentity
+        this.iconSource = iconSource
     }
 
     fun clearVisibleLyric() {
@@ -63,5 +68,6 @@ class LyricRuntimeState {
         delayMillis = 0
         track = null
         eventIdentity = null
+        iconSource = ""
     }
 }

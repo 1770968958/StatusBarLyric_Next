@@ -49,9 +49,11 @@ import statusbar.lyric.reflection.ReflectionUtils.findMethod
 import statusbar.lyric.reflection.ReflectionUtils.findMethodByName
 import statusbar.lyric.reflection.ReflectionUtils.getFieldValue
 import statusbar.lyric.reflection.ReflectionUtils.getIntFieldValue
-import statusbar.lyric.runtime.LyricEventIdentity
-import statusbar.lyric.runtime.LyricRuntimeState
 import statusbar.lyric.runtime.LyricLayoutCalculator
+import statusbar.lyric.runtime.LyricRuntimeController
+import statusbar.lyric.runtime.LyricRuntimeEvent
+import statusbar.lyric.runtime.LyricRuntimePolicy
+import statusbar.lyric.runtime.LyricRuntimeResult
 import statusbar.lyric.runtime.StatusBarGesture
 import statusbar.lyric.runtime.SystemUiVisibilityPolicy
 import statusbar.lyric.runtime.TrackIdentity
@@ -116,11 +118,12 @@ class Api101SystemUIHook(
     private var lyricLayout: LinearLayout? = null
     private var iconView: ImageView? = null
     private var titleDialog: TitleDialog? = null
-    private val runtimeState = LyricRuntimeState()
+    private val runtimeController = LyricRuntimeController(XposedOwnSP.config.masterSwitch)
+    private val runtimeState get() = runtimeController.state
     private var lastTitle = ""
     private var lastBase64Icon = ""
     private var isScreenLocked = false
-    private var runtimeEnabled = XposedOwnSP.config.masterSwitch
+    private val runtimeEnabled: Boolean get() = runtimeController.enabled
     private var lyricShowing = false
     private var notificationIconAreaRef: WeakReference<View>? = null
     private var notificationIconArea: View?
@@ -159,8 +162,7 @@ class Api101SystemUIHook(
         get() = mountedParentRef?.get()
         set(value) { mountedParentRef = value?.let(::WeakReference) }
     private val timeoutRestoreTask = ResettableHandlerTask(mainHandler) {
-        if (runtimeState.isPlaying) {
-            runtimeState.clearVisibleLyric()
+        if (runtimeController.onTimeout()) {
             hideLyric()
         }
     }
@@ -180,17 +182,13 @@ class Api101SystemUIHook(
     private val configRefreshRunnable = Runnable {
         runCatching {
             XposedOwnSP.config.update()
-            val wasEnabled = runtimeEnabled
-            runtimeEnabled = XposedOwnSP.config.masterSwitch
+            val enabledChanged = runtimeController.setEnabled(XposedOwnSP.config.masterSwitch)
             if (!runtimeEnabled) {
-                disableRuntime()
+                disableRuntime(resetState = !enabledChanged)
                 return@runCatching
             }
             refreshAppearanceSnapshot()
             applyConfiguration()
-            if (!wasEnabled) {
-                runtimeState.reset()
-            }
             if (runtimeState.isPlaying && runtimeState.lyric.isNotEmpty()) {
                 showLyric(runtimeState.lyric, runtimeState.delayMillis)
                 refreshTimeoutRestore()
@@ -216,32 +214,33 @@ class Api101SystemUIHook(
 
             mainHandler.post {
                 runCatching {
-                    if (!runtimeEnabled) return@post
-                    val eventIdentity = LyricEventIdentity.create(
-                        publisher = packageName,
-                        lyric = lyric,
-                        delayMillis = delay,
-                        track = trackIdentity,
-                        iconSource = icon,
-                        includeTrack = XposedOwnSP.config.titleSwitch,
-                        includeIcon = XposedOwnSP.config.iconSwitch
-                    )
-                    if (runtimeState.isSameEvent(eventIdentity)) {
-                        refreshTimeoutRestore()
-                        return@post
-                    }
-                    val trackChanged = runtimeState.isTrackChanged(trackIdentity)
-                    runtimeState.accept(
-                        publisher = packageName,
-                        lyric = lyric,
-                        delayMillis = delay,
-                        track = trackIdentity,
-                        eventIdentity = eventIdentity
-                    )
-                    updateIcon(icon)
-                    if (XposedOwnSP.config.titleSwitch && trackChanged) {
-                        lastTitle = trackIdentity.title
-                        showTitle(trackIdentity.title, lyric)
+                    when (
+                        val result = runtimeController.onLyric(
+                            event = LyricRuntimeEvent(
+                                publisher = packageName,
+                                lyric = lyric,
+                                delayMillis = delay,
+                                track = trackIdentity,
+                                iconSource = icon
+                            ),
+                            policy = LyricRuntimePolicy(
+                                includeTrackInIdentity = XposedOwnSP.config.titleSwitch,
+                                includeIconInIdentity = XposedOwnSP.config.iconSwitch
+                            )
+                        )
+                    ) {
+                        LyricRuntimeResult.Disabled -> return@post
+                        LyricRuntimeResult.Duplicate -> {
+                            refreshTimeoutRestore()
+                            return@post
+                        }
+                        is LyricRuntimeResult.Accepted -> {
+                            updateIcon(icon)
+                            if (XposedOwnSP.config.titleSwitch && result.trackChanged) {
+                                lastTitle = trackIdentity.title
+                                showTitle(trackIdentity.title, lyric)
+                            }
+                        }
                     }
                     showLyric(lyric, delay)
                     refreshTimeoutRestore()
@@ -259,8 +258,7 @@ class Api101SystemUIHook(
         override fun onStop(publisher: String?, data: SuperLyricData?) {
             mainHandler.post {
                 runCatching {
-                    if (!runtimeEnabled) return@post
-                    if (!runtimeState.stopIfPublisherMatches(publisher.orEmpty())) return@post
+                    if (!runtimeController.onStop(publisher.orEmpty())) return@post
                     iconDecodeGeneration.incrementAndGet()
                     timeoutRestoreTask.cancel()
                     titleDisplayTask.cancel()
@@ -281,7 +279,7 @@ class Api101SystemUIHook(
     fun onApplicationAttached(context: Context, classLoader: ClassLoader) {
         mediaKeyDispatcher = MediaKeyDispatcher(context)
         registerConfigObserver()
-        runtimeEnabled = XposedOwnSP.config.masterSwitch
+        runtimeController.setEnabled(XposedOwnSP.config.masterSwitch)
         if (!runtimeEnabled) {
             module.log(android.util.Log.INFO, TAG, "API101 SystemUI runtime starts disabled by masterSwitch")
         }
@@ -865,8 +863,8 @@ class Api101SystemUIHook(
     }
 
 
-    private fun disableRuntime() {
-        runtimeState.reset()
+    private fun disableRuntime(resetState: Boolean = true) {
+        if (resetState) runtimeController.reset()
         lastTitle = ""
         pendingTitleToShow = ""
         iconDecodeGeneration.incrementAndGet()

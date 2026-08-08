@@ -78,9 +78,11 @@ import statusbar.lyric.tools.Tools.ifNotNull
 import statusbar.lyric.tools.Tools.isNot
 import statusbar.lyric.tools.Tools.isNotNull
 import statusbar.lyric.runtime.InternalBroadcasts
-import statusbar.lyric.runtime.LyricEventIdentity
-import statusbar.lyric.runtime.LyricRuntimeState
 import statusbar.lyric.runtime.LyricLayoutCalculator
+import statusbar.lyric.runtime.LyricRuntimeController
+import statusbar.lyric.runtime.LyricRuntimeEvent
+import statusbar.lyric.runtime.LyricRuntimePolicy
+import statusbar.lyric.runtime.LyricRuntimeResult
 import statusbar.lyric.runtime.TrackIdentity
 import statusbar.lyric.runtime.StatusBarGesture
 import statusbar.lyric.runtime.SystemUiVisibilityPolicy
@@ -105,7 +107,8 @@ import java.util.WeakHashMap
 class SystemUILyric : BaseHook() {
     private val context: Context by lazy { AndroidAppHelper.currentApplication() }
 
-    private val runtimeState = LyricRuntimeState()
+    private val runtimeController = LyricRuntimeController(config.masterSwitch)
+    private val runtimeState get() = runtimeController.state
     private var lastColor: Int by observableChange(Color.WHITE) { oldValue, newValue ->
         if (oldValue == newValue) return@observableChange
         LogTools.log { "Changing Color: $newValue" }
@@ -150,7 +153,7 @@ class SystemUILyric : BaseHook() {
     }
     private var canLoad: Boolean = true
     private var isScreenLocked: Boolean = false
-    private var runtimeEnabled: Boolean = config.masterSwitch
+    private val runtimeEnabled: Boolean get() = runtimeController.enabled
     private var iconSwitch: Boolean = config.iconSwitch
 
     val isMusicPlaying: Boolean
@@ -623,7 +626,7 @@ class SystemUILyric : BaseHook() {
     private var pendingTitleData: SuperLyricData? = null
     private val timeoutRestoreTask = ResettableHandlerTask(handler) {
         if (!config.timeoutRestore) return@ResettableHandlerTask
-        runtimeState.clearVisibleLyric()
+        if (!runtimeController.onTimeout()) return@ResettableHandlerTask
         updateLyricState(showLyric = false)
         "Timeout restore".log()
     }
@@ -664,8 +667,7 @@ class SystemUILyric : BaseHook() {
         )
 
     private fun handleSuperLyricStop(packageName: String) {
-        if (!runtimeEnabled || !isReady) return
-        if (!runtimeState.stopIfPublisherMatches(packageName)) return
+        if (!isReady || !runtimeController.onStop(packageName)) return
 
         pendingTitlePublisher = ""
         pendingTitleData = null
@@ -687,39 +689,37 @@ class SystemUILyric : BaseHook() {
             artist = data.artist.orEmpty(),
             album = data.album.orEmpty()
         )
-        val trackChanged = runtimeState.isTrackChanged(trackIdentity)
         val incomingIcon = resolveIconBase64(data, packageName)
-        val eventIdentity = LyricEventIdentity.create(
-            publisher = packageName,
-            lyric = lyric,
-            delayMillis = delay,
-            track = trackIdentity,
-            iconSource = incomingIcon,
-            includeTrack = config.titleSwitch,
-            includeIcon = iconSwitch
-        )
-        val sameLyricEvent = !isHiding && runtimeState.isSameEvent(eventIdentity)
-
-        if (sameLyricEvent) {
-            refreshTimeoutRestore()
-            return
-        }
-
-        if (config.titleSwitch && trackChanged) {
-            scheduleTitleOnce(packageName, data)
-            LogTools.log {
-                "Title: ${trackIdentity.title}, Artist: ${trackIdentity.artist}, Album: ${trackIdentity.album}"
+        when (
+            val result = runtimeController.onLyric(
+                event = LyricRuntimeEvent(
+                    publisher = packageName,
+                    lyric = lyric,
+                    delayMillis = delay,
+                    track = trackIdentity,
+                    iconSource = incomingIcon
+                ),
+                policy = LyricRuntimePolicy(
+                    includeTrackInIdentity = config.titleSwitch,
+                    includeIconInIdentity = iconSwitch
+                )
+            )
+        ) {
+            LyricRuntimeResult.Disabled -> return
+            LyricRuntimeResult.Duplicate -> {
+                refreshTimeoutRestore()
+                return
+            }
+            is LyricRuntimeResult.Accepted -> {
+                if (config.titleSwitch && result.trackChanged) {
+                    scheduleTitleOnce(packageName, data)
+                    LogTools.log {
+                        "Title: ${trackIdentity.title}, Artist: ${trackIdentity.artist}, Album: ${trackIdentity.album}"
+                    }
+                }
+                changeIcon(incomingIcon)
             }
         }
-
-        runtimeState.accept(
-            publisher = packageName,
-            lyric = lyric,
-            delayMillis = delay,
-            track = trackIdentity,
-            eventIdentity = eventIdentity
-        )
-        changeIcon(incomingIcon)
         updateLyricState(delay = delay)
         refreshTimeoutRestore()
     }
@@ -875,14 +875,10 @@ class SystemUILyric : BaseHook() {
     private fun updateConfig(delay: Long = 0L) {
         "Updating Config".log()
         config.update()
-        val wasEnabled = runtimeEnabled
-        runtimeEnabled = config.masterSwitch
+        val enabledChanged = runtimeController.setEnabled(config.masterSwitch)
         if (!runtimeEnabled) {
-            disableRuntime()
+            disableRuntime(resetState = !enabledChanged)
             return
-        }
-        if (!wasEnabled) {
-            runtimeState.reset()
         }
         refreshAppearanceSnapshot()
         goMainThread(delay) {
@@ -936,8 +932,8 @@ class SystemUILyric : BaseHook() {
     }
 
 
-    private fun disableRuntime() {
-        runtimeState.reset()
+    private fun disableRuntime(resetState: Boolean = true) {
+        if (resetState) runtimeController.reset()
         pendingTitlePublisher = ""
         pendingTitleData = null
         timeoutRestoreTask.cancel()
