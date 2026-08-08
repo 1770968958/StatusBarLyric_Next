@@ -41,10 +41,13 @@ class Api101RemotePreferencesStore(
         return when (defValue) {
             is String -> preferences.getString(key, defValue) as T
             is Int -> preferences.getInt(key, defValue) as T
+            is Long -> preferences.getLong(key, defValue) as T
             is Boolean -> preferences.getBoolean(key, defValue) as T
-            is Double -> preferences.getFloat(key, defValue.toFloat()) as T
+            is Double -> preferences.getFloat(key, defValue.toFloat()).toDouble() as T
             is Float -> preferences.getFloat(key, defValue) as T
-            else -> "" as T
+            else -> throw IllegalArgumentException(
+                "Unsupported preference type for key '$key': ${defValue?.let { it::class.java.name } ?: "null"}"
+            )
         }
     }
 
