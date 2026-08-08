@@ -3,7 +3,8 @@ package statusbar.lyric.runtime
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-import java.util.IdentityHashMap
+import java.lang.ref.WeakReference
+import java.util.WeakHashMap
 import kotlin.math.abs
 
 /** Immutable description of the TextView anchor recorded by SystemUI test mode. */
@@ -38,8 +39,8 @@ data class TargetViewMatch(
 class TargetViewMatcher(
     private val textSizeEpsilonPx: Float = DEFAULT_TEXT_SIZE_EPSILON_PX
 ) {
-    private val parentStates = IdentityHashMap<ViewGroup, ParentMatchState>()
-    private val targetParents = IdentityHashMap<View, ViewGroup>()
+    private val parentStates = WeakHashMap<ViewGroup, ParentMatchState>()
+    private val targetParents = WeakHashMap<View, WeakReference<ViewGroup>>()
     private var activeSpec: TargetViewSpec? = null
 
     @Synchronized
@@ -61,16 +62,19 @@ class TargetViewMatcher(
             return null
         }
 
-        val previousParent = targetParents[view]
-        if (previousParent != null && previousParent !== parent) {
+        val previousParent = targetParents[view]?.get()
+        if (previousParent == null) {
+            targetParents.remove(view)
+        } else if (previousParent !== parent) {
             removeCandidate(view, previousParent)
         }
 
         val state = parentStates.getOrPut(parent) { ParentMatchState() }
+        compactCollectedCandidates(state)
         val index = state.matchedIndices[view] ?: state.nextIndex.also { assignedIndex ->
             state.matchedIndices[view] = assignedIndex
             state.nextIndex += 1
-            targetParents[view] = parent
+            targetParents[view] = WeakReference(parent)
         }
 
         return if (index == spec.targetIndex) {
@@ -82,7 +86,7 @@ class TargetViewMatcher(
 
     @Synchronized
     fun forget(view: View, fallbackParent: ViewGroup? = null): ViewGroup? {
-        val parent = targetParents.remove(view) ?: fallbackParent
+        val parent = targetParents.remove(view)?.get() ?: fallbackParent
         if (parent != null) {
             removeCandidate(view, parent, removeParentReference = false)
         }
@@ -112,22 +116,27 @@ class TargetViewMatcher(
             targetParents.remove(view)
         }
         val state = parentStates[parent] ?: return
-        val removedIndex = state.matchedIndices.remove(view) ?: return
-
-        state.matchedIndices.entries.forEach { entry ->
-            if (entry.value > removedIndex) {
-                entry.setValue(entry.value - 1)
-            }
-        }
-        state.nextIndex = state.matchedIndices.size
+        state.matchedIndices.remove(view) ?: return
+        compactCollectedCandidates(state)
         if (state.matchedIndices.isEmpty()) {
             parentStates.remove(parent)
         }
     }
 
+    private fun compactCollectedCandidates(state: ParentMatchState) {
+        if (state.matchedIndices.isEmpty()) {
+            state.nextIndex = 0
+            return
+        }
+        state.matchedIndices.entries
+            .sortedBy { it.value }
+            .forEachIndexed { index, entry -> entry.setValue(index) }
+        state.nextIndex = state.matchedIndices.size
+    }
+
     private class ParentMatchState(
         var nextIndex: Int = 0,
-        val matchedIndices: IdentityHashMap<View, Int> = IdentityHashMap()
+        val matchedIndices: WeakHashMap<View, Int> = WeakHashMap()
     )
 
     private companion object {

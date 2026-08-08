@@ -95,6 +95,7 @@ import statusbar.lyric.tools.XiaomiUtils.isHyperOS
 import statusbar.lyric.view.LyricSwitchView
 import statusbar.lyric.view.TitleDialog
 import java.io.File
+import java.lang.ref.WeakReference
 import java.util.Collections
 import java.util.WeakHashMap
 import kotlin.math.abs
@@ -230,8 +231,14 @@ class SystemUILyric : BaseHook() {
     //////////////////////////////Hook//////////////////////////////////////
     private var defaultDisplay: Any? = null
     private var centralSurfacesImpl: Any? = null
-    private var notificationIconArea: View? = null
-    private var statusBatteryContainer: View? = null
+    private var notificationIconAreaRef: WeakReference<View>? = null
+    private var notificationIconArea: View?
+        get() = notificationIconAreaRef?.get()
+        set(value) { notificationIconAreaRef = value?.let(::WeakReference) }
+    private var statusBatteryContainerRef: WeakReference<View>? = null
+    private var statusBatteryContainer: View?
+        get() = statusBatteryContainerRef?.get()
+        set(value) { statusBatteryContainerRef = value?.let(::WeakReference) }
     private val targetViewMatcher = TargetViewMatcher()
     private val visibilityOverrides = ViewVisibilityOverrideState()
     private val mediaKeyDispatcher by lazy { MediaKeyDispatcher(context) }

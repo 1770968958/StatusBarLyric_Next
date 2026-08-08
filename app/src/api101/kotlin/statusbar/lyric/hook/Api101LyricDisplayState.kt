@@ -26,6 +26,7 @@ import android.view.View
 import android.widget.TextView
 import statusbar.lyric.runtime.ViewVisibilityOverrideState
 import statusbar.lyric.view.LyricSwitchView
+import java.lang.ref.WeakReference
 
 /**
  * Keeps the API 101 lyric and matched clock visibility state together so
@@ -34,13 +35,14 @@ import statusbar.lyric.view.LyricSwitchView
 class Api101LyricDisplayState(
     private val visibilityOverrides: ViewVisibilityOverrideState
 ) {
-    private var matchedClock: TextView? = null
+    private var matchedClockRef: WeakReference<TextView>? = null
+    private val matchedClock: TextView? get() = matchedClockRef?.get()
     private var lyricShowing = false
     private var lastDynamicTint: Int? = null
 
     @Synchronized
     fun bindClock(clock: TextView, hideTime: Boolean) {
-        matchedClock = clock
+        matchedClockRef = WeakReference(clock)
         if (lyricShowing && hideTime) {
             hideClock()
         }
@@ -50,7 +52,7 @@ class Api101LyricDisplayState(
     fun unbindClock(clock: View) {
         if (matchedClock !== clock) return
         visibilityOverrides.forget(clock)
-        matchedClock = null
+        matchedClockRef = null
     }
 
     @Synchronized

@@ -71,6 +71,7 @@ import statusbar.lyric.tools.XiaomiUtils.isXiaomi
 import statusbar.lyric.view.LyricSwitchView
 import statusbar.lyric.view.TitleDialog
 import java.io.File
+import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -118,18 +119,42 @@ class Api101SystemUIHook(
     private var isMusicPlaying = false
     private var isScreenLocked = false
     private var lyricShowing = false
-    private var notificationIconArea: View? = null
-    private var systemIconsContainer: View? = null
-    private var miuiNetworkSpeedView: View? = null
-    private var miuiPadClockView: View? = null
-    private var miuiCarrierLabel: View? = null
-    private var miuiNotificationBigTime: View? = null
+    private var notificationIconAreaRef: WeakReference<View>? = null
+    private var notificationIconArea: View?
+        get() = notificationIconAreaRef?.get()
+        set(value) { notificationIconAreaRef = value?.let(::WeakReference) }
+    private var systemIconsContainerRef: WeakReference<View>? = null
+    private var systemIconsContainer: View?
+        get() = systemIconsContainerRef?.get()
+        set(value) { systemIconsContainerRef = value?.let(::WeakReference) }
+    private var miuiNetworkSpeedViewRef: WeakReference<View>? = null
+    private var miuiNetworkSpeedView: View?
+        get() = miuiNetworkSpeedViewRef?.get()
+        set(value) { miuiNetworkSpeedViewRef = value?.let(::WeakReference) }
+    private var miuiPadClockViewRef: WeakReference<View>? = null
+    private var miuiPadClockView: View?
+        get() = miuiPadClockViewRef?.get()
+        set(value) { miuiPadClockViewRef = value?.let(::WeakReference) }
+    private var miuiCarrierLabelRef: WeakReference<View>? = null
+    private var miuiCarrierLabel: View?
+        get() = miuiCarrierLabelRef?.get()
+        set(value) { miuiCarrierLabelRef = value?.let(::WeakReference) }
+    private var miuiNotificationBigTimeRef: WeakReference<View>? = null
+    private var miuiNotificationBigTime: View?
+        get() = miuiNotificationBigTimeRef?.get()
+        set(value) { miuiNotificationBigTimeRef = value?.let(::WeakReference) }
     private var focusedNotificationController: Any? = null
     private var focusedNotificationShowing = false
     private var touchDownPoint: PointF? = null
     private var pendingTitleToShow = ""
-    private var mountedTarget: View? = null
-    private var mountedParent: ViewGroup? = null
+    private var mountedTargetRef: WeakReference<View>? = null
+    private var mountedTarget: View?
+        get() = mountedTargetRef?.get()
+        set(value) { mountedTargetRef = value?.let(::WeakReference) }
+    private var mountedParentRef: WeakReference<ViewGroup>? = null
+    private var mountedParent: ViewGroup?
+        get() = mountedParentRef?.get()
+        set(value) { mountedParentRef = value?.let(::WeakReference) }
     private val timeoutRestoreTask = ResettableHandlerTask(mainHandler) {
         if (isMusicPlaying) {
             pendingLyric = ""
