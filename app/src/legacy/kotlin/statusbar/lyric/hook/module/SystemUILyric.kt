@@ -39,7 +39,6 @@ import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
-import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -78,12 +77,12 @@ import statusbar.lyric.tools.Tools.getObjectField
 import statusbar.lyric.tools.Tools.getObjectFieldIfExist
 import statusbar.lyric.tools.Tools.goMainThread
 import statusbar.lyric.tools.Tools.ifNotNull
-import statusbar.lyric.tools.Tools.isLandscape
 import statusbar.lyric.tools.Tools.isNot
 import statusbar.lyric.tools.Tools.isNotNull
 import statusbar.lyric.runtime.InternalBroadcasts
 import statusbar.lyric.runtime.LyricEventIdentity
 import statusbar.lyric.runtime.LyricRuntimeState
+import statusbar.lyric.runtime.LyricLayoutCalculator
 import statusbar.lyric.runtime.TrackIdentity
 import statusbar.lyric.runtime.StatusBarGesture
 import statusbar.lyric.runtime.StatusBarGestureDetector
@@ -103,7 +102,6 @@ import java.io.File
 import java.lang.ref.WeakReference
 import java.util.Collections
 import java.util.WeakHashMap
-import kotlin.math.min
 
 class SystemUILyric : BaseHook() {
     private val context: Context by lazy { AndroidAppHelper.currentApplication() }
@@ -166,18 +164,12 @@ class SystemUILyric : BaseHook() {
     private var autoHideController: Any? = null
     private val isReady: Boolean get() = this@SystemUILyric::clockView.isInitialized
 
-    private var theoreticalWidth: Int = 0
     private var fullscreenModeType: Int = -1
     private val iconDecodeThread: HandlerThread by lazy {
         HandlerThread("StatusBarLyric-IconDecode").apply { start() }
     }
     private val iconDecodeHandler: Handler by lazy { Handler(iconDecodeThread.looper) }
     private val statusBarGestureDetector = StatusBarGestureDetector()
-
-
-    private val displayMetrics: DisplayMetrics by lazy { context.resources.displayMetrics }
-    private val displayWidth: Int by lazy { displayMetrics.widthPixels }
-    private val displayHeight: Int by lazy { displayMetrics.heightPixels }
 
 
     private lateinit var clockView: TextView
@@ -801,27 +793,22 @@ class SystemUILyric : BaseHook() {
             syncSystemUiVisibilityOverrides()
 
             lyricView.apply {
-                val lyricWidth = getLyricWidth(lyric)
-                width = lyricWidth
-                val i = theoreticalWidth - lyricWidth
-                LogTools.log { "Lyric width: $lyricWidth, Theoretical width: $theoreticalWidth, i: $i" }
-                if (i > 0 && lyricWidth > 0) {
-                    if (delay > 0) {
-                        val durationInSeconds = delay / 1000f
-                        if (durationInSeconds > 0) {
-                            val speed = 0.3f + (i.toFloat() / lyricWidth) * (5f / durationInSeconds)
-                            val boundedSpeed = speed.coerceIn(0.3f, 5.0f)
-                            setScrollSpeed(boundedSpeed)
-                            LogTools.log { "Delay mode - Duration: $durationInSeconds, Speed: $boundedSpeed" }
-                        }
-                    } else if (currentAppearanceSnapshot().dynamicLyricSpeed) {
-                        val proportion = i.toFloat() / lyricWidth.toFloat()
-                        val speed = 10f * proportion + 0.7f
-                        setScrollSpeed(speed)
-                        LogTools.log { "Dynamic mode - Proportion: $proportion, Speed: $speed" }
-                    }
-                } else {
-                    setScrollSpeed(currentAppearanceSnapshot().lyricSpeed)
+                val appearance = currentAppearanceSnapshot()
+                val layoutResult = LyricLayoutCalculator.calculate(
+                    textWidthPx = measureText(lyric).toInt(),
+                    parentWidthPx = targetView.width,
+                    startMarginPx = appearance.lyricStartMargin,
+                    endMarginPx = appearance.lyricEndMargin,
+                    widthPercent = appearance.lyricWidthPercent,
+                    fixedWidth = appearance.fixedLyricWidth,
+                    dynamicSpeed = appearance.dynamicLyricSpeed,
+                    baseSpeed = appearance.lyricSpeed,
+                    delayMillis = delay
+                )
+                width = layoutResult.widthPx
+                setScrollSpeed(layoutResult.scrollSpeed)
+                LogTools.log {
+                    "Lyric width: ${layoutResult.widthPx}, overflow: ${layoutResult.overflowPx}, speed: ${layoutResult.scrollSpeed}"
                 }
                 if (isRandomAnima) {
                     val animation = randomAnima
@@ -1026,26 +1013,6 @@ class SystemUILyric : BaseHook() {
 
     private fun refreshAppearanceSnapshot() {
         appearanceSnapshot = RuntimeAppearanceSnapshot.from(config)
-    }
-
-    private fun getLyricWidth(lyric: String): Int {
-        "Getting Lyric Width".log()
-        val appearance = currentAppearanceSnapshot()
-        val textWidth = lyricView.measureText(lyric).toInt()
-        theoreticalWidth = textWidth
-        val availableWidth = targetView.width - appearance.lyricStartMargin - appearance.lyricEndMargin
-        return if (appearance.lyricWidthPercent == 0) {
-            min(textWidth, availableWidth)
-        } else if (appearance.fixedLyricWidth) {
-            scaleWidth(appearance.lyricWidthPercent)
-        } else {
-            min(textWidth, scaleWidth(appearance.lyricWidthPercent))
-        }
-    }
-
-    private fun scaleWidth(widthPercent: Int): Int {
-        "Scale Width".log()
-        return (widthPercent / 100f * if (context.isLandscape()) displayHeight else displayWidth).toInt()
     }
 
     inner class UpdateConfig : BroadcastReceiver() {

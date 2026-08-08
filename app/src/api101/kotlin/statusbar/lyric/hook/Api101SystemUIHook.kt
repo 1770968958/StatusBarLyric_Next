@@ -56,6 +56,7 @@ import statusbar.lyric.reflection.ReflectionUtils.getFieldValue
 import statusbar.lyric.reflection.ReflectionUtils.getIntFieldValue
 import statusbar.lyric.runtime.LyricEventIdentity
 import statusbar.lyric.runtime.LyricRuntimeState
+import statusbar.lyric.runtime.LyricLayoutCalculator
 import statusbar.lyric.runtime.StatusBarGesture
 import statusbar.lyric.runtime.TrackIdentity
 import statusbar.lyric.runtime.StatusBarGestureDetector
@@ -83,8 +84,6 @@ import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.max
-import kotlin.math.min
 
 /**
  * API 101 SystemUI implementation. It keeps framework interaction in API 101
@@ -995,21 +994,20 @@ class Api101SystemUIHook(
         lyricShowing = true
         syncSystemUiVisibilityOverrides()
 
-        val measuredTextWidth = lyricDisplay.measureText(lyric).toInt()
-        val width = getLyricWidth(measuredTextWidth, parent)
-        lyricDisplay.setWidth(width)
-        val overflow = measuredTextWidth - width
-        if (overflow > 0 && width > 0) {
-            val speed = when {
-                delay > 0 -> {
-                    (0.3f + (overflow.toFloat() / width) * (5f / (delay / 1000f))).coerceIn(0.3f, 5f)
-                }
-
-                currentAppearanceSnapshot().dynamicLyricSpeed -> 10f * overflow / width + 0.7f
-                else -> currentAppearanceSnapshot().lyricSpeed
-            }
-            lyricDisplay.setScrollSpeed(speed)
-        }
+        val appearance = currentAppearanceSnapshot()
+        val layoutResult = LyricLayoutCalculator.calculate(
+            textWidthPx = lyricDisplay.measureText(lyric).toInt(),
+            parentWidthPx = parent.width,
+            startMarginPx = appearance.lyricStartMargin,
+            endMarginPx = appearance.lyricEndMargin,
+            widthPercent = appearance.lyricWidthPercent,
+            fixedWidth = appearance.fixedLyricWidth,
+            dynamicSpeed = appearance.dynamicLyricSpeed,
+            baseSpeed = appearance.lyricSpeed,
+            delayMillis = delay
+        )
+        lyricDisplay.setWidth(layoutResult.widthPx)
+        lyricDisplay.setScrollSpeed(layoutResult.scrollSpeed)
         lyricDisplay.stopAllScroll()
         lyricDisplay.setText(lyric)
     }
@@ -1058,19 +1056,6 @@ class Api101SystemUIHook(
         } else {
             visibilityOverrides.restore(miuiCarrierLabel)
         }
-    }
-
-    private fun getLyricWidth(textWidth: Int, parent: ViewGroup): Int {
-        val appearance = currentAppearanceSnapshot()
-        val availableWidth = max(
-            parent.width - appearance.lyricStartMargin - appearance.lyricEndMargin,
-            0
-        )
-        if (appearance.lyricWidthPercent == 0) return min(textWidth, availableWidth)
-        val display = parent.resources.displayMetrics
-        val scaleBase = max(display.widthPixels, display.heightPixels)
-        val scaledWidth = (appearance.lyricWidthPercent / 100f * scaleBase).toInt()
-        return if (appearance.fixedLyricWidth) scaledWidth else min(textWidth, scaledWidth)
     }
 
     private fun refreshTimeoutRestore() {
