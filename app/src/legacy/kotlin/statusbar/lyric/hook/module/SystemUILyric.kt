@@ -83,6 +83,7 @@ import statusbar.lyric.tools.Tools.isNot
 import statusbar.lyric.tools.Tools.isNotNull
 import statusbar.lyric.runtime.InternalBroadcasts
 import statusbar.lyric.runtime.LyricEventIdentity
+import statusbar.lyric.runtime.LyricRuntimeState
 import statusbar.lyric.runtime.TrackIdentity
 import statusbar.lyric.runtime.StatusBarGesture
 import statusbar.lyric.runtime.StatusBarGestureDetector
@@ -107,8 +108,7 @@ import kotlin.math.min
 class SystemUILyric : BaseHook() {
     private val context: Context by lazy { AndroidAppHelper.currentApplication() }
 
-    private var lastLyric: String = ""
-    private var lastLyricDelay: Int = 0
+    private val runtimeState = LyricRuntimeState()
     private var lastColor: Int by observableChange(Color.WHITE) { oldValue, newValue ->
         if (oldValue == newValue) return@observableChange
         LogTools.log { "Changing Color: $newValue" }
@@ -123,7 +123,7 @@ class SystemUILyric : BaseHook() {
         }
     }
     private var title: String by observableChange("") { _, newValue ->
-        if (!config.titleShowWithSameLyric && lastLyric == newValue) return@observableChange
+        if (!config.titleShowWithSameLyric && runtimeState.lyric == newValue) return@observableChange
         goMainThread {
             titleDialog.apply {
                 if (newValue.isEmpty()) {
@@ -157,8 +157,8 @@ class SystemUILyric : BaseHook() {
     private var runtimeEnabled: Boolean = config.masterSwitch
     private var iconSwitch: Boolean = config.iconSwitch
 
-    @Volatile
-    var isMusicPlaying: Boolean = false
+    val isMusicPlaying: Boolean
+        get() = runtimeState.isPlaying
 
     @Volatile
     var isHiding: Boolean = false
@@ -518,7 +518,7 @@ class SystemUILyric : BaseHook() {
                 context.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT)
         ) {
             if (statusBarShowing && showLyric && canShowLyric()) {
-                showLyric(lastLyric, delay)
+                showLyric(runtimeState.lyric, delay)
                 FocusNotifyController.hideFocusNotifyIfNeed()
                 "StatusBar state is showing".log()
             } else {
@@ -529,7 +529,7 @@ class SystemUILyric : BaseHook() {
             }
         } else {
             if (showLyric && canShowLyric()) {
-                showLyric(lastLyric, delay)
+                showLyric(runtimeState.lyric, delay)
                 FocusNotifyController.hideFocusNotifyIfNeed()
             } else {
                 hideLyric()
@@ -626,9 +626,6 @@ class SystemUILyric : BaseHook() {
         autoHideController!!.callMethod("touchAutoHide")
     }
 
-    private var lastTrackIdentity: TrackIdentity? = null
-    private var lastEventIdentity: LyricEventIdentity? = null
-    private var playingApp: String = ""
     private var updateConfig: UpdateConfig = UpdateConfig()
     private var screenLockReceiver: ScreenLockReceiver = ScreenLockReceiver()
     private val handler = Handler(Looper.getMainLooper())
@@ -636,9 +633,7 @@ class SystemUILyric : BaseHook() {
     private var pendingTitleData: SuperLyricData? = null
     private val timeoutRestoreTask = ResettableHandlerTask(handler) {
         if (!config.timeoutRestore) return@ResettableHandlerTask
-        lastLyric = ""
-        lastLyricDelay = 0
-        playingApp = ""
+        runtimeState.clearVisibleLyric()
         updateLyricState(showLyric = false)
         "Timeout restore".log()
     }
@@ -651,7 +646,7 @@ class SystemUILyric : BaseHook() {
     }
     private fun showTitleIfCurrent(publisher: String, data: SuperLyricData) {
         if (!isMusicPlaying) return
-        if (playingApp != publisher) return
+        if (runtimeState.publisher != publisher) return
 
         this@SystemUILyric.title = data.title.orEmpty()
     }
@@ -680,14 +675,8 @@ class SystemUILyric : BaseHook() {
 
     private fun handleSuperLyricStop(packageName: String) {
         if (!runtimeEnabled || !isReady) return
-        if (playingApp.isNotEmpty() && playingApp != packageName) return
+        if (!runtimeState.stopIfPublisherMatches(packageName)) return
 
-        lastLyric = ""
-        lastLyricDelay = 0
-        playingApp = ""
-        lastTrackIdentity = null
-        lastEventIdentity = null
-        isMusicPlaying = false
         pendingTitlePublisher = ""
         pendingTitleData = null
         titleDisplayTask.cancel()
@@ -708,7 +697,7 @@ class SystemUILyric : BaseHook() {
             artist = data.artist.orEmpty(),
             album = data.album.orEmpty()
         )
-        val trackChanged = lastTrackIdentity != trackIdentity
+        val trackChanged = runtimeState.isTrackChanged(trackIdentity)
         val incomingIcon = resolveIconBase64(data, packageName)
         val eventIdentity = LyricEventIdentity.create(
             publisher = packageName,
@@ -719,28 +708,27 @@ class SystemUILyric : BaseHook() {
             includeTrack = config.titleSwitch,
             includeIcon = iconSwitch
         )
-        val sameLyricEvent = isMusicPlaying && !isHiding && lastEventIdentity == eventIdentity
+        val sameLyricEvent = !isHiding && runtimeState.isSameEvent(eventIdentity)
 
         if (sameLyricEvent) {
             refreshTimeoutRestore()
             return
         }
 
-        playingApp = packageName
         if (config.titleSwitch && trackChanged) {
-            lastTrackIdentity = trackIdentity
             scheduleTitleOnce(packageName, data)
             LogTools.log {
                 "Title: ${trackIdentity.title}, Artist: ${trackIdentity.artist}, Album: ${trackIdentity.album}"
             }
-        } else if (!config.titleSwitch) {
-            lastTrackIdentity = trackIdentity
         }
 
-        lastEventIdentity = eventIdentity
-        isMusicPlaying = true
-        lastLyric = lyric
-        lastLyricDelay = delay
+        runtimeState.accept(
+            publisher = packageName,
+            lyric = lyric,
+            delayMillis = delay,
+            track = trackIdentity,
+            eventIdentity = eventIdentity
+        )
         changeIcon(incomingIcon)
         updateLyricState(delay = delay)
         refreshTimeoutRestore()
@@ -912,11 +900,7 @@ class SystemUILyric : BaseHook() {
             return
         }
         if (!wasEnabled) {
-            lastLyric = ""
-            lastLyricDelay = 0
-            playingApp = ""
-            lastTrackIdentity = null
-            lastEventIdentity = null
+            runtimeState.reset()
         }
         refreshAppearanceSnapshot()
         goMainThread(delay) {
@@ -1010,7 +994,7 @@ class SystemUILyric : BaseHook() {
             if (isMusicPlaying && !isHiding) {
                 syncSystemUiVisibilityOverrides()
             }
-            if (isMusicPlaying && lastLyric.isNotEmpty()) {
+            if (isMusicPlaying && runtimeState.lyric.isNotEmpty()) {
                 refreshTimeoutRestore()
             } else {
                 timeoutRestoreTask.cancel()
@@ -1020,12 +1004,7 @@ class SystemUILyric : BaseHook() {
 
 
     private fun disableRuntime() {
-        isMusicPlaying = false
-        lastLyric = ""
-        lastLyricDelay = 0
-        playingApp = ""
-        lastTrackIdentity = null
-        lastEventIdentity = null
+        runtimeState.reset()
         pendingTitlePublisher = ""
         pendingTitleData = null
         timeoutRestoreTask.cancel()
@@ -1090,7 +1069,7 @@ class SystemUILyric : BaseHook() {
             if (!config.hideLyricWhenLockScreen) return
             if (isScreenLocked) {
                 updateLyricState(showLyric = false)
-            } else if (isMusicPlaying && lastLyric.isNotEmpty()) {
+            } else if (isMusicPlaying && runtimeState.lyric.isNotEmpty()) {
                 updateLyricState()
             }
         }

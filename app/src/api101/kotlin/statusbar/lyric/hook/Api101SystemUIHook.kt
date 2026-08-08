@@ -55,6 +55,7 @@ import statusbar.lyric.reflection.ReflectionUtils.findMethodByName
 import statusbar.lyric.reflection.ReflectionUtils.getFieldValue
 import statusbar.lyric.reflection.ReflectionUtils.getIntFieldValue
 import statusbar.lyric.runtime.LyricEventIdentity
+import statusbar.lyric.runtime.LyricRuntimeState
 import statusbar.lyric.runtime.StatusBarGesture
 import statusbar.lyric.runtime.TrackIdentity
 import statusbar.lyric.runtime.StatusBarGestureDetector
@@ -120,14 +121,9 @@ class Api101SystemUIHook(
     private var lyricLayout: LinearLayout? = null
     private var iconView: ImageView? = null
     private var titleDialog: TitleDialog? = null
-    private var pendingLyric: String = ""
-    private var pendingDelay = 0
-    private var playingPublisher = ""
-    private var lastTrackIdentity: TrackIdentity? = null
-    private var lastEventIdentity: LyricEventIdentity? = null
+    private val runtimeState = LyricRuntimeState()
     private var lastTitle = ""
     private var lastBase64Icon = ""
-    private var isMusicPlaying = false
     private var isScreenLocked = false
     private var runtimeEnabled = XposedOwnSP.config.masterSwitch
     private var lyricShowing = false
@@ -168,9 +164,8 @@ class Api101SystemUIHook(
         get() = mountedParentRef?.get()
         set(value) { mountedParentRef = value?.let(::WeakReference) }
     private val timeoutRestoreTask = ResettableHandlerTask(mainHandler) {
-        if (isMusicPlaying) {
-            pendingLyric = ""
-            pendingDelay = 0
+        if (runtimeState.isPlaying) {
+            runtimeState.clearVisibleLyric()
             hideLyric()
         }
     }
@@ -178,7 +173,7 @@ class Api101SystemUIHook(
         val title = pendingTitleToShow
         if (
             title.isBlank() ||
-            !isMusicPlaying ||
+            !runtimeState.isPlaying ||
             lastTitle != title ||
             !XposedOwnSP.config.titleSwitch
         ) {
@@ -199,14 +194,10 @@ class Api101SystemUIHook(
             refreshAppearanceSnapshot()
             applyConfiguration()
             if (!wasEnabled) {
-                pendingLyric = ""
-                pendingDelay = 0
-                playingPublisher = ""
-                lastTrackIdentity = null
-                lastEventIdentity = null
+                runtimeState.reset()
             }
-            if (isMusicPlaying && pendingLyric.isNotEmpty()) {
-                showLyric(pendingLyric, pendingDelay)
+            if (runtimeState.isPlaying && runtimeState.lyric.isNotEmpty()) {
+                showLyric(runtimeState.lyric, runtimeState.delayMillis)
                 refreshTimeoutRestore()
             }
         }.onFailure { throwable ->
@@ -240,23 +231,22 @@ class Api101SystemUIHook(
                         includeTrack = XposedOwnSP.config.titleSwitch,
                         includeIcon = XposedOwnSP.config.iconSwitch
                     )
-                    if (isMusicPlaying && lastEventIdentity == eventIdentity) {
+                    if (runtimeState.isSameEvent(eventIdentity)) {
                         refreshTimeoutRestore()
                         return@post
                     }
-                    val trackChanged = lastTrackIdentity != trackIdentity
-                    isMusicPlaying = true
-                    playingPublisher = packageName
-                    pendingLyric = lyric
-                    pendingDelay = delay
-                    lastEventIdentity = eventIdentity
+                    val trackChanged = runtimeState.isTrackChanged(trackIdentity)
+                    runtimeState.accept(
+                        publisher = packageName,
+                        lyric = lyric,
+                        delayMillis = delay,
+                        track = trackIdentity,
+                        eventIdentity = eventIdentity
+                    )
                     updateIcon(icon)
                     if (XposedOwnSP.config.titleSwitch && trackChanged) {
-                        lastTrackIdentity = trackIdentity
                         lastTitle = trackIdentity.title
                         showTitle(trackIdentity.title, lyric)
-                    } else if (!XposedOwnSP.config.titleSwitch) {
-                        lastTrackIdentity = trackIdentity
                     }
                     showLyric(lyric, delay)
                     refreshTimeoutRestore()
@@ -275,13 +265,7 @@ class Api101SystemUIHook(
             mainHandler.post {
                 runCatching {
                     if (!runtimeEnabled) return@post
-                    if (playingPublisher.isNotEmpty() && playingPublisher != publisher.orEmpty()) return@post
-                    isMusicPlaying = false
-                    playingPublisher = ""
-                    pendingLyric = ""
-                    pendingDelay = 0
-                    lastTrackIdentity = null
-                    lastEventIdentity = null
+                    if (!runtimeState.stopIfPublisherMatches(publisher.orEmpty())) return@post
                     iconDecodeGeneration.incrementAndGet()
                     timeoutRestoreTask.cancel()
                     titleDisplayTask.cancel()
@@ -342,8 +326,8 @@ class Api101SystemUIHook(
                 isScreenLocked = intent.action == Intent.ACTION_SCREEN_OFF
                 if (isScreenLocked && XposedOwnSP.config.hideLyricWhenLockScreen) {
                     hideLyric()
-                } else if (isMusicPlaying && pendingLyric.isNotEmpty()) {
-                    showLyric(pendingLyric, pendingDelay)
+                } else if (runtimeState.isPlaying && runtimeState.lyric.isNotEmpty()) {
+                    showLyric(runtimeState.lyric, runtimeState.delayMillis)
                 }
             }
         }
@@ -450,7 +434,7 @@ class Api101SystemUIHook(
     }
 
     private fun onStatusBarTouch(event: MotionEvent): Boolean {
-        if (!isMusicPlaying) {
+        if (!runtimeState.isPlaying) {
             statusBarGestureDetector.reset()
             return false
         }
@@ -481,7 +465,7 @@ class Api101SystemUIHook(
 
             StatusBarGesture.Tap -> {
                 if (!XposedOwnSP.config.clickStatusBarToHideLyric || !isTouchInsideLyric(event)) return false
-                if (lyricShowing) hideLyric() else showLyric(pendingLyric, pendingDelay)
+                if (lyricShowing) hideLyric() else showLyric(runtimeState.lyric, runtimeState.delayMillis)
                 true
             }
 
@@ -594,11 +578,11 @@ class Api101SystemUIHook(
     private fun onFocusNotificationEvaluated(controller: Any?, showing: Boolean) {
         focusedNotificationController = controller
         focusedNotificationShowing = showing
-        if (!XposedOwnSP.config.automateFocusedNotice || !isMusicPlaying) return
+        if (!XposedOwnSP.config.automateFocusedNotice || !runtimeState.isPlaying) return
         if (showing) {
             hideLyric()
-        } else if (pendingLyric.isNotEmpty()) {
-            showLyric(pendingLyric, pendingDelay)
+        } else if (runtimeState.lyric.isNotEmpty()) {
+            showLyric(runtimeState.lyric, runtimeState.delayMillis)
         }
     }
 
@@ -624,9 +608,9 @@ class Api101SystemUIHook(
             val name = runCatching { view.resources.getResourceEntryName(view.id) }.getOrNull()
             if (name == "system_icons") systemIconsContainer = view
         }
-        if (view !== systemIconsContainer || !isMusicPlaying) return
-        if (visibility == View.VISIBLE && pendingLyric.isNotEmpty()) {
-            showLyric(pendingLyric, pendingDelay)
+        if (view !== systemIconsContainer || !runtimeState.isPlaying) return
+        if (visibility == View.VISIBLE && runtimeState.lyric.isNotEmpty()) {
+            showLyric(runtimeState.lyric, runtimeState.delayMillis)
         } else if (visibility != View.VISIBLE) {
             hideLyric()
         }
@@ -705,11 +689,11 @@ class Api101SystemUIHook(
                         applyConfiguration(source)
                     }
                 }
-                if (isMusicPlaying && lastBase64Icon.isNotBlank()) {
+                if (runtimeState.isPlaying && lastBase64Icon.isNotBlank()) {
                     updateIcon(lastBase64Icon, force = true)
                 }
-                if (isMusicPlaying && pendingLyric.isNotEmpty()) {
-                    showLyric(pendingLyric, pendingDelay)
+                if (runtimeState.isPlaying && runtimeState.lyric.isNotEmpty()) {
+                    showLyric(runtimeState.lyric, runtimeState.delayMillis)
                 }
                 module.log(
                     android.util.Log.INFO,
@@ -973,12 +957,7 @@ class Api101SystemUIHook(
 
 
     private fun disableRuntime() {
-        isMusicPlaying = false
-        playingPublisher = ""
-        pendingLyric = ""
-        pendingDelay = 0
-        lastTrackIdentity = null
-        lastEventIdentity = null
+        runtimeState.reset()
         lastTitle = ""
         pendingTitleToShow = ""
         iconDecodeGeneration.incrementAndGet()
@@ -1139,7 +1118,7 @@ class Api101SystemUIHook(
                 if (
                     generation != iconDecodeGeneration.get() ||
                     lastBase64Icon != base64Icon ||
-                    !isMusicPlaying
+                    !runtimeState.isPlaying
                 ) {
                     bitmap?.recycle()
                     return@post
