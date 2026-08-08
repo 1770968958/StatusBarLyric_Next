@@ -53,6 +53,7 @@ import statusbar.lyric.runtime.TargetViewMatcher
 import statusbar.lyric.runtime.TargetViewSpec
 import statusbar.lyric.runtime.icon.IconBitmapDecoder
 import statusbar.lyric.runtime.input.MediaKeyDispatcher
+import statusbar.lyric.runtime.scheduler.ResettableHandlerTask
 import statusbar.lyric.tools.BlurTools.cornerRadius
 import statusbar.lyric.tools.BlurTools.setBackgroundBlur
 import statusbar.lyric.tools.LyricViewTools
@@ -123,9 +124,29 @@ class Api101SystemUIHook(
     private var focusedNotificationController: Any? = null
     private var focusedNotificationShowing = false
     private var touchDownPoint: PointF? = null
-    private var timeoutRunnable: Runnable? = null
+    private var pendingTitleToShow = ""
     private var mountedTarget: View? = null
     private var mountedParent: ViewGroup? = null
+    private val timeoutRestoreTask = ResettableHandlerTask(mainHandler) {
+        if (isMusicPlaying) {
+            pendingLyric = ""
+            pendingDelay = 0
+            hideLyric()
+        }
+    }
+    private val titleDisplayTask = ResettableHandlerTask(mainHandler, action = titleTask@{
+        val title = pendingTitleToShow
+        if (
+            title.isBlank() ||
+            !isMusicPlaying ||
+            lastTitle != title ||
+            !XposedOwnSP.config.titleSwitch
+        ) {
+            return@titleTask
+        }
+        val source = mountedTarget as? TextView ?: return@titleTask
+        (titleDialog ?: TitleDialog(source.context).also { titleDialog = it }).showTitle(title.trim())
+    })
     private val configRefreshRunnable = Runnable {
         runCatching {
             XposedOwnSP.config.update()
@@ -191,8 +212,9 @@ class Api101SystemUIHook(
                     pendingLyric = ""
                     pendingDelay = 0
                     iconDecodeGeneration.incrementAndGet()
-                    timeoutRunnable?.let(mainHandler::removeCallbacks)
-                    timeoutRunnable = null
+                    timeoutRestoreTask.cancel()
+                    titleDisplayTask.cancel()
+                    pendingTitleToShow = ""
                     hideLyric()
                     module.log(
                         android.util.Log.INFO,
@@ -912,6 +934,7 @@ class Api101SystemUIHook(
     }
 
     private fun hideLyric() {
+        titleDisplayTask.cancel()
         lyricDisplayState.updateLyricVisibility(show = false, hideTime = false)
         lyricShowing = false
         lyricLayout?.hideView(false)
@@ -944,30 +967,23 @@ class Api101SystemUIHook(
     }
 
     private fun refreshTimeoutRestore() {
-        timeoutRunnable?.let(mainHandler::removeCallbacks)
-        if (!XposedOwnSP.config.timeoutRestore) return
-        timeoutRunnable = Runnable {
-            if (isMusicPlaying) {
-                pendingLyric = ""
-                pendingDelay = 0
-                hideLyric()
-            }
-        }.also {
-            mainHandler.postDelayed(
-                it,
-                XposedOwnSP.config.timeoutRestoreSeconds * 1000L
-            )
+        if (!XposedOwnSP.config.timeoutRestore) {
+            timeoutRestoreTask.cancel()
+            return
         }
+        timeoutRestoreTask.schedule(XposedOwnSP.config.timeoutRestoreSeconds * 1000L)
     }
 
     private fun showTitle(title: String, lyric: String) {
-        if (!XposedOwnSP.config.titleSwitch || title.isBlank()) return
-        if (!XposedOwnSP.config.titleShowWithSameLyric && title == lyric) return
-        mainHandler.postDelayed({
-            if (!isMusicPlaying || lastTitle != title) return@postDelayed
-            val source = mountedTarget as? TextView ?: return@postDelayed
-            (titleDialog ?: TitleDialog(source.context).also { titleDialog = it }).showTitle(title.trim())
-        }, TITLE_DELAY_MILLIS)
+        if (!XposedOwnSP.config.titleSwitch || title.isBlank() ||
+            (!XposedOwnSP.config.titleShowWithSameLyric && title == lyric)
+        ) {
+            pendingTitleToShow = ""
+            titleDisplayTask.cancel()
+            return
+        }
+        pendingTitleToShow = title
+        titleDisplayTask.schedule(TITLE_DELAY_MILLIS)
     }
 
     private fun resolveIconBase64(data: SuperLyricData, publisher: String): String {
